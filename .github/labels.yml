@@ -1,0 +1,81 @@
+# GitHub Label Taxonomy for Stellar Checkout
+
+- name: "area:core"
+  color: "0052cc"
+  description: "Domain logic, entities, ports, money math, status machine in packages/core"
+
+- name: "area:stellar"
+  color: "0284c7"
+  description: "Stellar chain adapter, SEP-7 builder, Horizon watcher in packages/stellar"
+
+- name: "area:offramp"
+  color: "0891b2"
+  description: "Off-ramp adapters (TestAnchorOffRamp, MockAnchorOffRamp, SEP-6/10/38) in packages/offramp"
+
+- name: "area:api"
+  color: "7c3aed"
+  description: "Hono API endpoints, database models, worker, rate limiter, webhooks in apps/api"
+
+- name: "area:web"
+  color: "db2777"
+  description: "Next.js dashboard, buyer checkout UI, embeddable widget script in apps/web"
+
+- name: "area:docs"
+  color: "059669"
+  description: "Documentation, API references, architecture guides, contribution guides"
+
+- name: "area:infra"
+  color: "4b5563"
+  description: "CI/CD workflows, build scripts, Docker configurations, Render/Vercel deployment"
+
+- name: "type:bug"
+  color: "d97706"
+  description: "Something is broken or producing incorrect results"
+
+- name: "type:feature"
+  color: "2563eb"
+  description: "New functionality or substantial expansion of capability"
+
+- name: "type:enhancement"
+  color: "9333ea"
+  description: "Improvements to existing code, performance, or developer experience"
+
+- name: "type:docs"
+  color: "10b981"
+  description: "Documentation additions, fixes, or clarifications"
+
+- name: "type:refactor"
+  color: "64748b"
+  description: "Code restructures that do not change external behavior"
+
+- name: "type:security"
+  color: "dc2626"
+  description: "Security fixes or hardening updates"
+
+- name: "complexity:small"
+  color: "86efac"
+  description: "Small scope (~1-2 files, straightforward logic, ~1-3 hours)"
+
+- name: "complexity:medium"
+  color: "fde047"
+  description: "Moderate scope (~3-5 files, require testing/adapter work, ~1-2 days)"
+
+- name: "complexity:large"
+  color: "fca5a5"
+  description: "Large scope (~multi-package, architectural changes, >3 days)"
+
+- name: "Stellar Wave: W7"
+  color: "a855f7"
+  description: "Targeted for Drips Wave 7 submission window (July 2026)"
+
+- name: "Stellar Wave: W8"
+  color: "6366f1"
+  description: "Targeted for Drips Wave 8 roadmap"
+
+- name: "good-first-issue"
+  color: "70a5fd"
+  description: "Self-contained issue suitable for first-time contributors"
+
+- name: "help-wanted"
+  color: "008672"
+  description: "Extra attention or community contribution requested"

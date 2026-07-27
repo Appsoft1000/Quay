@@ -216,6 +216,7 @@ pnpm build       # builds the web app
 - **[Proposal & Vision](PROPOSAL.md)** — market positioning, non-custodial strategy, and SDP alignment.
 - **[Fix Log](FIXLOG.md)** — recent fixes, architectural milestones, and engineering changelog.
 - **[Issues & Backlog](ISSUES.md)** — post-entry roadmap items, SEP-24, auth, and telemetry tasks.
+- **[Triage & Review SLAs](docs/TRIAGE.md)** — issue taxonomy, 48h SLAs, and stale issue policy.
 - **[HTTP API reference](docs/API.md)** — endpoints, request/response shapes, and webhook delivery.
 - **[Contributing](CONTRIBUTING.md)** — setup, the check suite, and PR guidelines.
 - **[Security policy](SECURITY.md)** — how to report a vulnerability privately.
