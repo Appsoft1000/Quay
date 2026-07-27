@@ -70,6 +70,14 @@ export default function Dashboard() {
     setTimeout(() => setCopied((c) => (c === id ? null : c)), 1500);
   }
 
+  async function copyWidgetHtml(link: PaymentLink) {
+    const host = window.location.origin;
+    const snippet = `<script src="${host}/widget.js" defer></script>\n<button data-quay-link="${link.id}" data-quay-label="Pay ${link.amount} ${link.asset.code}">Pay</button>`;
+    await navigator.clipboard.writeText(snippet);
+    setCopied(`widget_${link.id}`);
+    setTimeout(() => setCopied((c) => (c === `widget_${link.id}` ? null : c)), 1500);
+  }
+
   async function cashOut(id: string) {
     setError(null);
     try {
@@ -144,6 +152,10 @@ export default function Dashboard() {
                   <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                     <button className="linkbtn" onClick={() => copyCheckout(link.id)}>
                       {copied === link.id ? "Copied" : "Copy link"}
+                    </button>
+                    {" · "}
+                    <button className="linkbtn" onClick={() => copyWidgetHtml(link)}>
+                      {copied === `widget_${link.id}` ? "Copied" : "Copy widget HTML"}
                     </button>
                     {link.status === "paid" && (
                       <>

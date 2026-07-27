@@ -13,7 +13,20 @@ export default function CheckoutClient({ initial }: { initial: LinkWithRequest }
   const done = SETTLED.has(link.status);
 
   useEffect(() => {
-    if (done) return;
+    if (done) {
+      if (typeof window !== "undefined" && window.parent !== window) {
+        window.parent.postMessage(
+          {
+            type: "quay:paid",
+            linkId: link.id,
+            link,
+          },
+          "*"
+        );
+      }
+      return;
+    }
+
     const poll = async () => {
       try {
         const next = await api.getLink(link.id);
@@ -22,9 +35,10 @@ export default function CheckoutClient({ initial }: { initial: LinkWithRequest }
         /* keep polling */
       }
     };
+
     const t = setInterval(poll, 4000);
     return () => clearInterval(t);
-  }, [link.id, done]);
+  }, [link, done]);
 
   if (done) {
     return (
