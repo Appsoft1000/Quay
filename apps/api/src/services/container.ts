@@ -1,5 +1,5 @@
 import { Keypair, StrKey } from "@stellar/stellar-sdk";
-import { resolveStellarConfig, StellarRail, HorizonWatcher } from "@checkout/stellar";
+import { resolveStellarConfig, StellarRail, HorizonWatcher, StreamingHorizonWatcher } from "@checkout/stellar";
 import { MockAnchorOffRamp, TestAnchorOffRamp } from "@checkout/offramp";
 import type { OffRampPort } from "@checkout/core";
 import { env } from "../env";
@@ -44,7 +44,10 @@ export async function createContainer(): Promise<Container> {
   await sellersRepo.ensureDefault(sellerWallet, env.defaultSellerName);
 
   const rail = new StellarRail(stellar);
-  const watcher = new HorizonWatcher(stellar.horizonUrl);
+  const watcher =
+    env.watchMode === "stream"
+      ? new StreamingHorizonWatcher(stellar.horizonUrl, { log: (m) => console.log(`[watcher:stream] ${m}`) })
+      : new HorizonWatcher(stellar.horizonUrl);
   const offramp = createOffRamp(seller.keypair);
 
   // Anchor health probe + circuit breaker (issue #19, 3.7). In mock mode the
@@ -88,6 +91,7 @@ export async function createContainer(): Promise<Container> {
     async stop() {
       await loop.stop();
       stopPoller?.();
+      if (watcher instanceof StreamingHorizonWatcher) watcher.stop();
       stopProbe?.();
       stopPoller = null;
       stopProbe = null;
