@@ -14,7 +14,9 @@
     "next": "16.2.9",
     "react": "19.2.7",
     "react-dom": "19.2.7",
-    "qrcode.react": "4.2.0"
+    "qrcode.react": "4.2.0",
+    "@creit.tech/stellar-wallets-kit": "1.9.5",
+    "@stellar/stellar-sdk": "16.0.1"
   },
   "devDependencies": {
     "@types/node": "25.9.3",

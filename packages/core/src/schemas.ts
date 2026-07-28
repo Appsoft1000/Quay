@@ -6,6 +6,11 @@ import { isValidAmount } from "./domain/money";
 // names the asset code.
 export const assetCodeSchema = z.enum(["USDC", "XLM"]);
 
+export const submitPaymentSchema = z.object({
+  signedXdr: z.string(),
+});
+export type SubmitPaymentBody = z.infer<typeof submitPaymentSchema];
+
 export const createLinkSchema = z.object({
   title: z.string().trim().min(1).max(120),
   amount: z

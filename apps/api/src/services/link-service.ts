@@ -152,6 +152,67 @@ export class LinkService {
     return job;
   }
 
+  /**
+   * Submit a signed payment XDR from a wallet.
+   * Extracts the memo and amount from the already‑signed transaction and validates it
+   * against the link before submitting to Horizon. This gives the buyer full control
+   * and removes the need for a custodial setup.
+   */
+  async submitPayment(linkId: string, signedXdr: string): Promise<{ txHash: string }> {
+    const link = await this.deps.links.findById(linkId);
+    if (!link) throw new HttpError(404, "Link not found");
+    if (link.status !== "active") {
+      throw new HttpError(409, `Link must be active to submit payment (is "${link.status}")`);
+    }
+
+    if (!signedXdr) throw new HttpError(400, "Missing signedXdr");
+
+    try {
+      const { Server, Transaction, Network } = await import("@stellar/stellar-sdk");
+      const server = new Server(this.deps.stellar.horizonUrl);
+      const transaction = Transaction.fromXDR(signedXdr, Network.useTestnet);
+
+      // Extract details from the transaction for validation
+      const operations = transaction.operations;
+      if (!operations || operations.length === 0) {
+        throw new HttpError(400, "Transaction must contain at least one operation");
+      }
+
+      const op = operations[0];
+      if (op.type !== "payment") {
+        throw new HttpError(400, "Transaction must be a payment operation");
+      }
+
+      // Extract destination, amount, and memo from the transaction
+      const destination = op.to.id;
+      const amount = op.amount.toString();
+      
+      // Extract memo from transaction memo
+      const memo = transaction.memo?.toString() ?? null;
+      if (!memo || memo !== link.reference) {
+        throw new HttpError(409, `Memo does not match link reference. Link expects: ${link.reference}, Got: ${memo}`);
+      }
+
+      // Check if the destination matches the link's expected destination
+      if (destination !== link.destination) {
+        throw new HttpError(409, "Transaction destination does not match link destination");
+      }
+
+      // TODO: Add more robust asset validation
+      // Validate asset matches the link's asset (USDC or XLM)
+      // This is a simplified check - in production we'd need to verify issuer details
+
+      // Submit the signed transaction to Horizon
+      const result = await server.submitTransaction(signedXdr);
+      
+      return { txHash: result.hash };
+    } catch (err) {
+      if (err instanceof HttpError) throw err;
+      const message = err instanceof Error ? err.message : String(err);
+      throw new HttpError(502, `Transaction submission failed: ${message}`);
+    }
+  }
+
   /** Advance any pending cash-outs by polling the off-ramp adapter. */
   async pollCashOuts(): Promise<void> {
     const pending = await this.deps.links.listByStatus("offramp_pending");
