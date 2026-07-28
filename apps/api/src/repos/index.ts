@@ -2,9 +2,12 @@ import { eq, and, inArray } from "drizzle-orm";
 import type {
   CreateLinkInput,
   LinkRepository,
+  OffRampStateRepository,
   PaymentLink,
   Seller,
   SellerRepository,
+  StoredOffRampJob,
+  StoredOffRampQuote,
   Webhook,
   WebhookDelivery,
   WebhookRepository,
@@ -12,7 +15,16 @@ import type {
   AssetRef,
 } from "@checkout/core";
 import type { DB } from "../db/client";
-import { links, sellers, webhooks, webhookDeliveries, watcherCursors, processedTx } from "../db/schema";
+import {
+  links,
+  sellers,
+  webhooks,
+  webhookDeliveries,
+  watcherCursors,
+  processedTx,
+  offrampQuotes,
+  offrampJobs,
+} from "../db/schema";
 import { newId } from "../services/ids";
 
 type LinkRow = typeof links.$inferSelect;
@@ -228,5 +240,92 @@ export class DrizzleWatcherStateRepository implements WatcherStateRepository {
       .insert(processedTx)
       .values({ txHash, linkId, createdAt: Date.now() })
       .onConflictDoNothing();
+  }
+}
+
+type OffRampQuoteRow = typeof offrampQuotes.$inferSelect;
+type OffRampJobRow = typeof offrampJobs.$inferSelect;
+
+function rowToQuote(row: OffRampQuoteRow): StoredOffRampQuote {
+  return {
+    quoteId: row.quoteId,
+    linkId: row.linkId,
+    sellAsset: { code: row.sellAssetCode, issuer: row.sellAssetIssuer ?? null },
+    sellAmount: row.sellAmount,
+    buyCurrency: row.buyCurrency,
+    price: row.price,
+    expiresAt: row.expiresAt,
+    createdAt: row.createdAt,
+  };
+}
+
+function rowToJob(row: OffRampJobRow): StoredOffRampJob {
+  return {
+    jobId: row.jobId,
+    linkId: row.linkId,
+    anchor: row.anchor,
+    targetCurrency: row.targetCurrency,
+    targetAmount: row.targetAmount,
+    rate: row.rate,
+    status: row.status as StoredOffRampJob["status"],
+    externalStatus: row.externalStatus ?? null,
+    lastError: row.lastError ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+/** Off-ramp quotes and jobs — money-adjacent state that must survive a restart. */
+export class DrizzleOffRampStateRepository implements OffRampStateRepository {
+  constructor(private readonly db: DB) {}
+
+  async saveQuote(quote: StoredOffRampQuote): Promise<void> {
+    await this.db.insert(offrampQuotes).values({
+      quoteId: quote.quoteId,
+      linkId: quote.linkId,
+      sellAssetCode: quote.sellAsset.code,
+      sellAssetIssuer: quote.sellAsset.issuer,
+      sellAmount: quote.sellAmount,
+      buyCurrency: quote.buyCurrency,
+      price: quote.price,
+      expiresAt: quote.expiresAt,
+      createdAt: quote.createdAt,
+    });
+  }
+
+  async getQuote(quoteId: string): Promise<StoredOffRampQuote | null> {
+    const rows = await this.db.select().from(offrampQuotes).where(eq(offrampQuotes.quoteId, quoteId)).limit(1);
+    return rows[0] ? rowToQuote(rows[0]) : null;
+  }
+
+  async saveJob(job: StoredOffRampJob): Promise<void> {
+    await this.db.insert(offrampJobs).values({
+      jobId: job.jobId,
+      linkId: job.linkId,
+      anchor: job.anchor,
+      targetCurrency: job.targetCurrency,
+      targetAmount: job.targetAmount,
+      rate: job.rate,
+      status: job.status,
+      externalStatus: job.externalStatus,
+      lastError: job.lastError,
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+    });
+  }
+
+  async getJob(jobId: string): Promise<StoredOffRampJob | null> {
+    const rows = await this.db.select().from(offrampJobs).where(eq(offrampJobs.jobId, jobId)).limit(1);
+    return rows[0] ? rowToJob(rows[0]) : null;
+  }
+
+  async updateJob(
+    jobId: string,
+    patch: Partial<Pick<StoredOffRampJob, "targetAmount" | "status" | "externalStatus" | "lastError">>,
+  ): Promise<void> {
+    await this.db
+      .update(offrampJobs)
+      .set({ ...patch, updatedAt: Date.now() })
+      .where(eq(offrampJobs.jobId, jobId));
   }
 }

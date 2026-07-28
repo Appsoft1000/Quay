@@ -48,6 +48,32 @@ export const webhookDeliveries = sqliteTable("webhook_deliveries", {
   createdAt: integer("created_at").notNull(),
 });
 
+export const offrampQuotes = sqliteTable("offramp_quotes", {
+  quoteId: text("quote_id").primaryKey(),
+  linkId: text("link_id").notNull(),
+  sellAssetCode: text("sell_asset_code").notNull(),
+  sellAssetIssuer: text("sell_asset_issuer"), // null = native XLM
+  sellAmount: text("sell_amount").notNull(),
+  buyCurrency: text("buy_currency").notNull(),
+  price: text("price").notNull(),
+  expiresAt: integer("expires_at").notNull(),
+  createdAt: integer("created_at").notNull(),
+});
+
+export const offrampJobs = sqliteTable("offramp_jobs", {
+  jobId: text("job_id").primaryKey(),
+  linkId: text("link_id").notNull(),
+  anchor: text("anchor").notNull(),
+  targetCurrency: text("target_currency").notNull(),
+  targetAmount: text("target_amount").notNull(),
+  rate: text("rate").notNull(),
+  status: text("status").notNull(),
+  externalStatus: text("external_status"),
+  lastError: text("last_error"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 export const watcherCursors = sqliteTable("watcher_cursors", {
   account: text("account").primaryKey(),
   cursor: text("cursor").notNull(),

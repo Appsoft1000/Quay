@@ -1,12 +1,14 @@
 import type { Keypair } from "@stellar/stellar-sdk";
-import type {
-  AssetRef,
-  OffRampJob,
-  OffRampJobStatus,
-  OffRampMode,
-  OffRampPort,
-  OffRampQuote,
-  SellerPayoutRef,
+import {
+  OffRampJobNotFoundError,
+  type AssetRef,
+  type OffRampJob,
+  type OffRampJobStatus,
+  type OffRampMode,
+  type OffRampPort,
+  type OffRampQuote,
+  type OffRampStateRepository,
+  type SellerPayoutRef,
 } from "@checkout/core";
 import { Sep10Client } from "./sep10";
 import { getSep38Quote } from "./sep38";
@@ -24,13 +26,18 @@ import { getSep6Transaction, putSep12Customer, startSep6Withdraw } from "./sep6"
 // is backend-only today (no interactive-redirect concept anywhere upstream of
 // this adapter), while SEP-6 is fully field-driven and needs no changes to
 // LinkService, the API routes, or the dashboard.
+//
+// Quotes and jobs are persisted through `OffRampStateRepository` rather than
+// kept in a Map — this is money-adjacent state that must survive a restart.
 
+const ANCHOR_NAME = "testanchor";
 const DEFAULT_BASE_URL = "https://testanchor.stellar.org";
 const DEFAULT_HOME_DOMAIN = "testanchor.stellar.org";
 
 export interface TestAnchorOptions {
   /** Seller's Stellar keypair — SEP-10 needs the secret key to sign the auth challenge. */
   sellerKeypair: Keypair;
+  state: OffRampStateRepository;
   baseUrl?: string;
   homeDomain?: string;
 }
@@ -41,30 +48,16 @@ function mapSep6Status(status: string): OffRampJobStatus {
   return "pending"; // pending_anchor, pending_user_transfer_start, pending_external, ...
 }
 
-interface StoredQuote {
-  sellAsset: AssetRef;
-  sellAmount: string;
-  buyCurrency: string;
-  price: string;
-}
-
-interface StoredJob {
-  linkId: string;
-  targetCurrency: string;
-  targetAmount: string;
-  rate: string;
-}
-
 export class TestAnchorOffRamp implements OffRampPort {
   readonly mode: OffRampMode = "seller_initiated";
 
   private readonly baseUrl: string;
   private readonly auth: Sep10Client;
-  private readonly quotes = new Map<string, StoredQuote>();
-  private readonly jobs = new Map<string, StoredJob>();
+  private readonly state: OffRampStateRepository;
 
   constructor(opts: TestAnchorOptions) {
     this.baseUrl = opts.baseUrl ?? DEFAULT_BASE_URL;
+    this.state = opts.state;
     this.auth = new Sep10Client(opts.sellerKeypair, {
       baseUrl: this.baseUrl,
       homeDomain: opts.homeDomain ?? DEFAULT_HOME_DOMAIN,
@@ -72,6 +65,7 @@ export class TestAnchorOffRamp implements OffRampPort {
   }
 
   async quote(input: {
+    linkId: string;
     sourceAsset: AssetRef;
     sourceAmount: string;
     targetCurrency: string;
@@ -88,11 +82,16 @@ export class TestAnchorOffRamp implements OffRampPort {
       buyCurrency: input.targetCurrency,
     });
 
-    this.quotes.set(q.id, {
+    const expiresAt = Date.parse(q.expiresAt);
+    await this.state.saveQuote({
+      quoteId: q.id,
+      linkId: input.linkId,
       sellAsset: input.sourceAsset,
       sellAmount: input.sourceAmount,
       buyCurrency: input.targetCurrency,
       price: q.price,
+      expiresAt,
+      createdAt: Date.now(),
     });
 
     return {
@@ -102,7 +101,7 @@ export class TestAnchorOffRamp implements OffRampPort {
       targetCurrency: input.targetCurrency,
       targetAmount: q.buyAmount,
       rate: q.price,
-      expiresAt: Date.parse(q.expiresAt),
+      expiresAt,
     };
   }
 
@@ -111,7 +110,7 @@ export class TestAnchorOffRamp implements OffRampPort {
     quoteId: string;
     payout: SellerPayoutRef;
   }): Promise<OffRampJob> {
-    const q = this.quotes.get(input.quoteId);
+    const q = await this.state.getQuote(input.quoteId);
     if (!q) throw new Error("Unknown or expired quote");
 
     const jwt = await this.auth.token();
@@ -126,11 +125,19 @@ export class TestAnchorOffRamp implements OffRampPort {
       destExtra: input.payout.fields.dest_extra,
     });
 
-    this.jobs.set(withdraw.id, {
+    const now = Date.now();
+    await this.state.saveJob({
+      jobId: withdraw.id,
       linkId: input.linkId,
+      anchor: ANCHOR_NAME,
       targetCurrency: q.buyCurrency,
       targetAmount: "",
       rate: q.price,
+      status: "pending",
+      externalStatus: null,
+      lastError: null,
+      createdAt: now,
+      updatedAt: now,
     });
 
     return {
@@ -144,22 +151,30 @@ export class TestAnchorOffRamp implements OffRampPort {
   }
 
   async status(jobId: string): Promise<OffRampJob> {
-    const job = this.jobs.get(jobId);
-    if (!job) throw new Error("Unknown off-ramp job");
+    const job = await this.state.getJob(jobId);
+    if (!job) throw new OffRampJobNotFoundError(jobId);
 
     const jwt = await this.auth.token();
     const tx = await getSep6Transaction(this.baseUrl, jwt, jobId);
     const status = mapSep6Status(tx.status);
-    if (tx.amountOut) job.targetAmount = tx.amountOut;
+    const targetAmount = tx.amountOut ?? job.targetAmount;
+    const reason = status === "failed" ? (tx.message ?? "testanchor: withdrawal failed") : null;
+
+    await this.state.updateJob(jobId, {
+      targetAmount,
+      status,
+      externalStatus: tx.status,
+      lastError: reason,
+    });
 
     return {
       jobId,
       linkId: job.linkId,
       status,
       targetCurrency: job.targetCurrency,
-      targetAmount: job.targetAmount,
+      targetAmount,
       rate: job.rate,
-      reason: status === "failed" ? (tx.message ?? "testanchor: withdrawal failed") : undefined,
+      reason: reason ?? undefined,
     };
   }
 }

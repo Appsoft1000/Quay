@@ -95,9 +95,69 @@ export interface OffRampJob {
 
 export interface OffRampPort {
   readonly mode: OffRampMode;
-  quote(input: { sourceAsset: AssetRef; sourceAmount: string; targetCurrency: string }): Promise<OffRampQuote>;
+  quote(input: {
+    linkId: string;
+    sourceAsset: AssetRef;
+    sourceAmount: string;
+    targetCurrency: string;
+  }): Promise<OffRampQuote>;
   initiate(input: { linkId: string; quoteId: string; payout: SellerPayoutRef }): Promise<OffRampJob>;
+  /** Throws {@link OffRampJobNotFoundError} when `jobId` has no known state — a
+   *  crash/redeploy wiped an in-memory-only implementation, or the id is bogus. */
   status(jobId: string): Promise<OffRampJob>;
+}
+
+/** Typed miss for {@link OffRampPort.status}, so callers (the cash-out poller)
+ *  can tell "this job's state is genuinely gone" apart from a transient
+ *  network/anchor error and act on it — see `OffRampStateRepository`. */
+export class OffRampJobNotFoundError extends Error {
+  constructor(readonly jobId: string) {
+    super(`Unknown off-ramp job: ${jobId}`);
+    this.name = "OffRampJobNotFoundError";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Off-ramp state persistence
+// ---------------------------------------------------------------------------
+// Quotes and jobs are money-adjacent state: a cash-out sits in `offramp_pending`
+// for real seconds-to-days while an anchor settles it, so this cannot live only
+// in an adapter's in-process Map — a restart must not strand the seller's money.
+
+export interface StoredOffRampQuote {
+  quoteId: string;
+  linkId: string;
+  sellAsset: AssetRef;
+  sellAmount: string;
+  buyCurrency: string;
+  price: string;
+  expiresAt: number;
+  createdAt: number;
+}
+
+export interface StoredOffRampJob {
+  jobId: string;
+  linkId: string;
+  anchor: string; // which OffRampPort adapter owns this job, e.g. "mock" | "testanchor"
+  targetCurrency: string;
+  targetAmount: string;
+  rate: string;
+  status: OffRampJobStatus;
+  externalStatus: string | null; // raw upstream status string, for debugging
+  lastError: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface OffRampStateRepository {
+  saveQuote(quote: StoredOffRampQuote): Promise<void>;
+  getQuote(quoteId: string): Promise<StoredOffRampQuote | null>;
+  saveJob(job: StoredOffRampJob): Promise<void>;
+  getJob(jobId: string): Promise<StoredOffRampJob | null>;
+  updateJob(
+    jobId: string,
+    patch: Partial<Pick<StoredOffRampJob, "targetAmount" | "status" | "externalStatus" | "lastError">>,
+  ): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
