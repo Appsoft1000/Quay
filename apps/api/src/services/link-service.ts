@@ -4,6 +4,7 @@ import {
   OffRampJobNotFoundError,
   type CashOutBody,
   type CreateLinkBody,
+  type KycPort,
   type LinkRepository,
   type MatchOutcome,
   type NormalizedPayment,
@@ -228,6 +229,7 @@ export class LinkService {
       rail: RailPort;
       offramp: OffRampPort;
       offrampState: OffRampStateRepository;
+      kyc: KycPort;
       stellar: StellarConfig;
       /**
        * Optional anchor health probe. When omitted we default to a no-op
@@ -342,6 +344,15 @@ export class LinkService {
     // anchor. The HTTP layer maps this to 503 anchor_unavailable.
     if (!this.health.isAvailable()) {
       throw new HttpError(503, "anchor_unavailable");
+    }
+
+    // KYC is keyed by seller, never by link — a live cash-out is impossible
+    // until the anchor has actually accepted this seller's identity. `status()`
+    // re-syncs rather than trusting a cached value, since paying out against
+    // stale/rejected KYC is exactly the failure this gate exists to prevent.
+    const kyc = await this.deps.kyc.status(link.sellerId);
+    if (kyc.status !== "ACCEPTED") {
+      throw new HttpError(403, "kyc_required");
     }
 
     const sourceAmount = link.paidAmount ?? link.amount;

@@ -62,6 +62,13 @@ if (correlation !== "memo" && correlation !== "muxed") {
   throw new Error(`CORRELATION must be "memo" or "muxed", got "${correlation}"`);
 }
 
+// "mock" (default, offline-safe) or "testanchor" (real SEP-10/12/38/6 flow
+// against https://testanchor.stellar.org). See packages/offramp/src/testanchor.ts.
+const offramp = (process.env.OFFRAMP ?? "mock") as "mock" | "testanchor";
+if (offramp !== "mock" && offramp !== "testanchor") {
+  throw new Error(`OFFRAMP must be "mock" or "testanchor", got "${offramp}"`);
+}
+
 export const env = {
   network,
   horizonUrl: process.env.HORIZON_URL || undefined,
@@ -89,9 +96,7 @@ export const env = {
   // throwaway keypair on first boot and prints it. Required on public network.
   defaultSellerWallet: process.env.DEFAULT_SELLER_WALLET || undefined,
   defaultSellerName: process.env.DEFAULT_SELLER_NAME || "Demo Seller",
-  // "mock" (default, offline-safe) or "testanchor" (real SEP-10/38/6 flow against
-  // https://testanchor.stellar.org). See packages/offramp/src/testanchor.ts.
-  offramp: (process.env.OFFRAMP ?? "mock") as "mock" | "testanchor",
+  offramp,
   // Required only when OFFRAMP=testanchor and DEFAULT_SELLER_WALLET is set (SEP-10
   // needs the seller's secret key to sign the auth challenge). Never persisted.
   defaultSellerSecret: process.env.DEFAULT_SELLER_SECRET || undefined,
@@ -103,4 +108,8 @@ export const env = {
   watcherIdleBackoffTicks: Number(process.env.WATCHER_IDLE_BACKOFF_TICKS ?? "10"),
   watcherAggressivePollTicks: Number(process.env.WATCHER_AGGRESSIVE_POLL_TICKS ?? "5"),
   shutdownTimeoutMs: Number(process.env.SHUTDOWN_TIMEOUT_MS ?? "5000"),
+  // AES-256-GCM key (32 bytes, hex) for seller KYC field values at rest.
+  // Required only when OFFRAMP=testanchor — mock mode never stores real PII.
+  // Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+  kycEncryptionKey: offramp === "testanchor" ? req("KYC_ENCRYPTION_KEY") : undefined,
 } as const;

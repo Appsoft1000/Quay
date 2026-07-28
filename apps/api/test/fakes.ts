@@ -1,5 +1,7 @@
 import type {
   CreateLinkInput,
+  KycPort,
+  KycRecord,
   LinkRepository,
   OffRampJob,
   OffRampMode,
@@ -166,5 +168,41 @@ export class ScriptedOffRamp implements OffRampPort {
   }
   async status(jobId: string): Promise<OffRampJob> {
     return this.statusImpl(jobId);
+  }
+}
+
+/** KYC gate that's always ACCEPTED — mirrors `NoKycRequired`, used by tests
+ *  that aren't exercising the KYC gate itself. */
+export class AlwaysAcceptedKyc implements KycPort {
+  async status(sellerId: string): Promise<KycRecord> {
+    return this.accepted(sellerId);
+  }
+  async submit(sellerId: string): Promise<KycRecord> {
+    return this.accepted(sellerId);
+  }
+  private accepted(sellerId: string): KycRecord {
+    return {
+      sellerId,
+      customerId: null,
+      status: "ACCEPTED",
+      requiredFields: [],
+      providedFields: {},
+      message: null,
+      lastSyncedAt: null,
+      updatedAt: Date.now(),
+    };
+  }
+}
+
+/** Fully scripted KycPort for testing the cash-out gate itself. */
+export class ScriptedKyc implements KycPort {
+  statusImpl: (sellerId: string) => Promise<KycRecord> = () => {
+    throw new Error("statusImpl not configured");
+  };
+  async status(sellerId: string): Promise<KycRecord> {
+    return this.statusImpl(sellerId);
+  }
+  async submit(sellerId: string): Promise<KycRecord> {
+    return this.statusImpl(sellerId);
   }
 }

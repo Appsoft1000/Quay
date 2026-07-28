@@ -1,6 +1,10 @@
 import { eq, and, inArray } from "drizzle-orm";
 import type {
   CreateLinkInput,
+  KycFieldSpec,
+  KycRecord,
+  KycRepository,
+  KycStatus,
   LinkRepository,
   OffRampStateRepository,
   PaymentLink,
@@ -24,8 +28,10 @@ import {
   processedTx,
   offrampQuotes,
   offrampJobs,
+  sellerKyc,
 } from "../db/schema";
 import { newId } from "../services/ids";
+import { decryptPii, encryptPii } from "../crypto/pii";
 
 type LinkRow = typeof links.$inferSelect;
 
@@ -327,5 +333,54 @@ export class DrizzleOffRampStateRepository implements OffRampStateRepository {
       .update(offrampJobs)
       .set({ ...patch, updatedAt: Date.now() })
       .where(eq(offrampJobs.jobId, jobId));
+  }
+}
+
+type SellerKycRow = typeof sellerKyc.$inferSelect;
+
+/**
+ * Seller-level SEP-12 KYC state. `fieldsEncrypted` is the seller's submitted
+ * PII (name, email, address, ...) — encrypted with `piiKey` before it ever
+ * touches the database, decrypted only in-process when read back.
+ */
+export class DrizzleKycRepository implements KycRepository {
+  constructor(
+    private readonly db: DB,
+    private readonly piiKey: Buffer,
+  ) {}
+
+  private rowToRecord(row: SellerKycRow): KycRecord {
+    return {
+      sellerId: row.sellerId,
+      customerId: row.customerId ?? null,
+      status: row.status as KycStatus,
+      requiredFields: JSON.parse(row.requiredFields) as KycFieldSpec[],
+      providedFields: JSON.parse(decryptPii(row.fieldsEncrypted, this.piiKey)) as Record<string, string>,
+      message: row.message ?? null,
+      lastSyncedAt: row.lastSyncedAt ?? null,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  async get(sellerId: string): Promise<KycRecord | null> {
+    const rows = await this.db.select().from(sellerKyc).where(eq(sellerKyc.sellerId, sellerId)).limit(1);
+    return rows[0] ? this.rowToRecord(rows[0]) : null;
+  }
+
+  async save(record: KycRecord): Promise<void> {
+    const row = {
+      sellerId: record.sellerId,
+      customerId: record.customerId,
+      status: record.status,
+      requiredFields: JSON.stringify(record.requiredFields),
+      fieldsEncrypted: encryptPii(JSON.stringify(record.providedFields), this.piiKey),
+      message: record.message,
+      lastSyncedAt: record.lastSyncedAt,
+      updatedAt: record.updatedAt,
+    };
+    await this.db
+      .insert(sellerKyc)
+      .values(row)
+      .onConflictDoUpdate({ target: sellerKyc.sellerId, set: row });
   }
 }

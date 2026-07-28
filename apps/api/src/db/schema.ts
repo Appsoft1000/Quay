@@ -74,6 +74,20 @@ export const offrampJobs = sqliteTable("offramp_jobs", {
   updatedAt: integer("updated_at").notNull(),
 });
 
+// Keyed by seller (never by link) — identity is submitted once and reused
+// across every link. `fieldsEncrypted` is the only PII column: an AES-256-GCM
+// blob of the seller's submitted field values, opaque without KYC_ENCRYPTION_KEY.
+export const sellerKyc = sqliteTable("seller_kyc", {
+  sellerId: text("seller_id").primaryKey(),
+  customerId: text("customer_id"),
+  status: text("status").notNull(),
+  requiredFields: text("required_fields").notNull(), // JSON KycFieldSpec[] — not PII, just schema metadata
+  fieldsEncrypted: text("fields_encrypted").notNull(), // AES-256-GCM blob of Record<string,string>
+  message: text("message"),
+  lastSyncedAt: integer("last_synced_at"),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 export const watcherCursors = sqliteTable("watcher_cursors", {
   account: text("account").primaryKey(),
   cursor: text("cursor").notNull(),

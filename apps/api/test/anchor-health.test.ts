@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
+  type KycPort,
+  type KycRecord,
   type LinkRepository,
   type NormalizedPayment,
   type OffRampJob,
@@ -341,6 +343,28 @@ class FakeOffRampStateForAnchor implements OffRampStateRepository {
   }
 }
 
+/** Always ACCEPTED — these anchor-health tests aren't exercising the KYC gate. */
+class FakeKycAlwaysAcceptedForAnchor implements KycPort {
+  async status(sellerId: string): Promise<KycRecord> {
+    return this.accepted(sellerId);
+  }
+  async submit(sellerId: string): Promise<KycRecord> {
+    return this.accepted(sellerId);
+  }
+  private accepted(sellerId: string): KycRecord {
+    return {
+      sellerId,
+      customerId: null,
+      status: "ACCEPTED",
+      requiredFields: [],
+      providedFields: {},
+      message: null,
+      lastSyncedAt: null,
+      updatedAt: Date.now(),
+    };
+  }
+}
+
 interface FlakyOffRampOpts {
   quoteShouldThrow?: boolean;
   status?: OffRampJobStatus;
@@ -401,6 +425,7 @@ function buildSvcWithHealth(health: AnchorHealth, offramp: OffRampPort): Svc {
     rail: new FakeRailForAnchor(),
     offramp,
     offrampState: new FakeOffRampStateForAnchor(),
+    kyc: new FakeKycAlwaysAcceptedForAnchor(),
     stellar: STELLAR,
     health,
     correlation: "memo",
@@ -585,6 +610,7 @@ describe("LinkService.pollCashOuts attribution", () => {
       rail: new FakeRailForAnchor(),
       offramp,
       offrampState: new FakeOffRampStateForAnchor(),
+      kyc: new FakeKycAlwaysAcceptedForAnchor(),
       stellar: STELLAR,
       health: new AnchorHealth({ enabled: false, url: null, homeDomain: null }),
       correlation: "memo",
@@ -632,6 +658,7 @@ describe("LinkService.pollCashOuts attribution", () => {
       rail: new FakeRailForAnchor(),
       offramp,
       offrampState: new FakeOffRampStateForAnchor(),
+      kyc: new FakeKycAlwaysAcceptedForAnchor(),
       stellar: STELLAR,
       health: new AnchorHealth({ enabled: false, url: null, homeDomain: null }),
       correlation: "memo",
@@ -671,6 +698,7 @@ describe("LinkService.pollCashOuts attribution", () => {
       rail: new FakeRailForAnchor(),
       offramp,
       offrampState: new FakeOffRampStateForAnchor(),
+      kyc: new FakeKycAlwaysAcceptedForAnchor(),
       stellar: STELLAR,
       health: new AnchorHealth({ enabled: false, url: null, homeDomain: null }),
       correlation: "memo",
@@ -707,6 +735,7 @@ describe("LinkService.pollCashOuts attribution", () => {
       rail: new FakeRailForAnchor(),
       offramp,
       offrampState: new FakeOffRampStateForAnchor(),
+      kyc: new FakeKycAlwaysAcceptedForAnchor(),
       stellar: STELLAR,
       health: new AnchorHealth({ enabled: false, url: null, homeDomain: null }),
       correlation: "memo",

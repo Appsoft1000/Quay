@@ -12,7 +12,7 @@ import {
 } from "@checkout/core";
 import { Sep10Client } from "./sep10";
 import { getSep38Quote } from "./sep38";
-import { getSep6Transaction, putSep12Customer, startSep6Withdraw } from "./sep6";
+import { getSep6Transaction, startSep6Withdraw } from "./sep6";
 
 // ===========================================================================
 //  REAL ANCHOR — SEP-10 (auth) -> SEP-38 (quote) -> SEP-6 (withdraw).
@@ -29,6 +29,12 @@ import { getSep6Transaction, putSep12Customer, startSep6Withdraw } from "./sep6"
 //
 // Quotes and jobs are persisted through `OffRampStateRepository` rather than
 // kept in a Map — this is money-adjacent state that must survive a restart.
+//
+// SEP-12 KYC is deliberately NOT done here: `TestAnchorKyc` (kyc.ts) owns that
+// lifecycle, keyed by seller and submitted ahead of time through /seller/kyc.
+// `initiate()` assumes the caller (LinkService) already confirmed the seller's
+// KYC status is ACCEPTED — this adapter has no business fabricating identity
+// fields from whatever happened to be in a cash-out request.
 
 const ANCHOR_NAME = "testanchor";
 const DEFAULT_BASE_URL = "https://testanchor.stellar.org";
@@ -114,7 +120,6 @@ export class TestAnchorOffRamp implements OffRampPort {
     if (!q) throw new Error("Unknown or expired quote");
 
     const jwt = await this.auth.token();
-    await putSep12Customer(this.baseUrl, jwt, input.payout.fields);
 
     const withdraw = await startSep6Withdraw(this.baseUrl, jwt, {
       assetCode: q.sellAsset.code,
