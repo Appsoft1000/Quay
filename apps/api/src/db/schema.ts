@@ -12,6 +12,7 @@ export const links = sqliteTable("links", {
   reference: text("reference").notNull().unique(),
   sellerId: text("seller_id").notNull(),
   destination: text("destination").notNull(),
+  muxedId: text("muxed_id"), // SEP-23 correlation id; null in memo mode (the default)
   title: text("title").notNull(),
   amount: text("amount").notNull(),
   assetCode: text("asset_code").notNull(),
