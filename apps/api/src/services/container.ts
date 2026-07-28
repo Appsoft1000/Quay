@@ -11,7 +11,13 @@ import {
   DrizzleWatcherStateRepository,
 } from "../repos/index";
 import { LinkService, AnchorHealth } from "./link-service";
-import { WatcherLoop, startCashOutPoller, startAnchorProbeTimer } from "../worker/watcher-loop";
+import {
+  WatcherLoop,
+  startCashOutPoller,
+  startAnchorProbeTimer,
+  type AccountCircuitBreakerStatus,
+  type WatcherMetrics,
+} from "../worker/watcher-loop";
 
 export interface Container {
   service: LinkService;
@@ -20,8 +26,9 @@ export interface Container {
   webhooks: DrizzleWebhookRepository;
   config: { network: string; horizonUrl: string; sellerWallet: string };
   start(): void;
-  /** Gracefully stops services, awaiting in-flight work. */
-  stop(): Promise<void>;
+  stop(): void;
+  getWatcherCircuitBreakerStatus(): AccountCircuitBreakerStatus[];
+  getWatcherMetrics(): WatcherMetrics;
 }
 
 export async function createContainer(): Promise<Container> {
@@ -97,6 +104,12 @@ export async function createContainer(): Promise<Container> {
       stopProbe = null;
       await client.close();
       console.log("[api] all services stopped");
+    },
+    getWatcherCircuitBreakerStatus() {
+      return loop.getCircuitBreakerStatus();
+    },
+    getWatcherMetrics() {
+      return loop.getMetrics();
     },
   };
 }
