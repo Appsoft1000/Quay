@@ -34,3 +34,80 @@ jobs:
           NEXT_PUBLIC_API_URL: http://localhost:8787
           API_URL: http://localhost:8787
           NEXT_TELEMETRY_DISABLED: "1"
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build API image
+        run: docker build -f apps/api/Dockerfile -t quay-api:ci .
+
+      - name: Record image size
+        run: |
+          SIZE_BYTES=$(docker image inspect quay-api:ci --format='{{.Size}}')
+          SIZE_MB=$((SIZE_BYTES / 1024 / 1024))
+          echo "quay-api image size: ${SIZE_MB} MB"
+          echo "### quay-api image size: ${SIZE_MB} MB" >> "$GITHUB_STEP_SUMMARY"
+          # Issue 8.4's own target - fail loudly (not silently) if we regress past it,
+          # rather than let image bloat creep in unnoticed.
+          if [ "$SIZE_MB" -gt 200 ]; then
+            echo "::error::quay-api image is ${SIZE_MB} MB, over the 200 MB target (issue 8.4)."
+            exit 1
+          fi
+
+      # Non-root + read-only-filesystem-compatible are asserted here, not
+      # just documented - a regression (e.g. someone re-adding a root-only
+      # step) fails CI instead of only being caught on review.
+      - name: Assert the image runs as non-root
+        run: |
+          USER_OUT=$(docker run --rm quay-api:ci node -e "console.log(process.getuid ? process.getuid() : 'no-getuid')")
+          echo "Container user id: ${USER_OUT}"
+          if [ "$USER_OUT" = "0" ]; then
+            echo "::error::quay-api container runs as root (uid 0)."
+            exit 1
+          fi
+
+      - name: Trivy scan (fail on HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: quay-api:ci
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+
+      # Runs the real image read-only (tmpfs at /tmp only) to verify both
+      # /health and /ready actually respond, and that SIGTERM produces a
+      # clean exit (code 0) rather than requiring Docker's SIGKILL fallback -
+      # this issue's own "Done when: SIGTERM reaches the Node process".
+      - name: Smoke test - health, readiness, and graceful SIGTERM
+        run: |
+          docker run -d --name quay-api-smoke -p 8787:8787 \
+            --read-only --tmpfs /tmp \
+            -e DATABASE_URL=file:/tmp/smoke.db \
+            -e USDC_ISSUER_TESTNET=GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5 \
+            quay-api:ci
+
+          ready=""
+          for _ in $(seq 1 20); do
+            if curl -sf http://localhost:8787/health > /dev/null; then ready=1; break; fi
+            sleep 1
+          done
+          if [ -z "$ready" ]; then
+            echo "::error::quay-api never responded on /health"
+            docker logs quay-api-smoke
+            exit 1
+          fi
+
+          echo "--- /health ---"; curl -sf http://localhost:8787/health
+          echo; echo "--- /ready ---"; curl -sf http://localhost:8787/ready
+          echo
+
+          docker stop --time 15 quay-api-smoke > /dev/null
+          EXIT_CODE=$(docker inspect quay-api-smoke --format='{{.State.ExitCode}}')
+          echo "exit code after SIGTERM: ${EXIT_CODE}"
+          docker logs quay-api-smoke
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "::error::quay-api did not exit cleanly (0) after SIGTERM - got ${EXIT_CODE}."
+            exit 1
+          fi

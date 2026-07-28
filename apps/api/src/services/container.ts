@@ -21,6 +21,8 @@ export interface Container {
   config: { network: string; horizonUrl: string; sellerWallet: string };
   start(): void;
   stop(): void;
+  /** Readiness probe: can this instance actually serve traffic right now (i.e. is the database reachable)? Distinct from liveness (`/health`) - a process can be alive but not yet/no-longer able to serve. */
+  ready(): Promise<boolean>;
 }
 
 export async function createContainer(): Promise<Container> {
@@ -79,6 +81,14 @@ export async function createContainer(): Promise<Container> {
     stop() {
       loop.stop();
       stopPoller?.();
+    },
+    async ready() {
+      try {
+        await client.execute("SELECT 1");
+        return true;
+      } catch {
+        return false;
+      }
     },
   };
 }
