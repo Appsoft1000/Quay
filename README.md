@@ -222,6 +222,7 @@ pnpm sweep       # pre-entry ritual: uptime + synthetic checks against the live 
 ## Docs & contributing
 
 - **[Architecture](docs/ARCHITECTURE.md)** — package graph, the three ports, sequence diagrams for each flow, the status machine, and how to add a new chain/anchor/rail.
+- **[Triage & review SLAs](docs/TRIAGE.md)** — issue taxonomy, 48h labelling SLA, and the stale-issue policy.
 - **[HTTP API reference](docs/API.md)** — endpoints, request/response shapes, and webhook delivery.
 - **[Contributing](CONTRIBUTING.md)** — setup, the check suite, and PR guidelines.
 - **[Security policy](SECURITY.md)** — how to report a vulnerability privately.
