@@ -1,6 +1,9 @@
 import {
+  assetEquals,
   canTransition,
+  compareAmount,
   normalizeAmount,
+  type AssetRef,
   type CashOutBody,
   type CreateLinkBody,
   type LinkRepository,
@@ -168,9 +171,10 @@ export class LinkService {
     if (!signedXdr) throw new HttpError(400, "Missing signedXdr");
 
     try {
-      const { Server, Transaction, Network } = await import("@stellar/stellar-sdk");
+      const { Server, Transaction, Networks, Asset } = await import("@stellar/stellar-sdk");
       const server = new Server(this.deps.stellar.horizonUrl);
-      const transaction = Transaction.fromXDR(signedXdr, Network.useTestnet);
+      const networkPassphrase = this.deps.stellar.networkPassphrase;
+      const transaction = Transaction.fromXDR(signedXdr, networkPassphrase);
 
       // Extract details from the transaction for validation
       const operations = transaction.operations;
@@ -183,34 +187,58 @@ export class LinkService {
         throw new HttpError(400, "Transaction must be a payment operation");
       }
 
-      // Extract destination, amount, and memo from the transaction
+      // Extract destination, amount, and asset from the transaction
       const destination = op.to.id;
       const amount = op.amount.toString();
-      
+
+      // Validate destination matches the link's expected destination
+      if (destination !== link.destination) {
+        throw new HttpError(409, "Transaction destination does not match link destination");
+      }
+
+      // Validate asset matches the link's expected asset
+      const txAsset = this.extractAssetFromOperation(op);
+      if (!assetEquals(txAsset, link.asset)) {
+        throw new HttpError(409, `Asset mismatch: link expects ${link.asset.code}${link.asset.issuer ? ` (${link.asset.issuer})` : ""}, transaction sends ${txAsset.code}${txAsset.issuer ? ` (${txAsset.issuer})` : ""}`);
+      }
+
+      // Validate amount matches the link's expected amount (allow overpayment)
+      const comparison = compareAmount(amount, link.amount);
+      if (comparison === "under") {
+        throw new HttpError(409, `Amount mismatch: link expects ${link.amount}, transaction sends ${amount}`);
+      }
+
       // Extract memo from transaction memo
       const memo = transaction.memo?.toString() ?? null;
       if (!memo || memo !== link.reference) {
         throw new HttpError(409, `Memo does not match link reference. Link expects: ${link.reference}, Got: ${memo}`);
       }
 
-      // Check if the destination matches the link's expected destination
-      if (destination !== link.destination) {
-        throw new HttpError(409, "Transaction destination does not match link destination");
-      }
-
-      // TODO: Add more robust asset validation
-      // Validate asset matches the link's asset (USDC or XLM)
-      // This is a simplified check - in production we'd need to verify issuer details
-
       // Submit the signed transaction to Horizon
       const result = await server.submitTransaction(signedXdr);
-      
+
       return { txHash: result.hash };
     } catch (err) {
       if (err instanceof HttpError) throw err;
       const message = err instanceof Error ? err.message : String(err);
       throw new HttpError(502, `Transaction submission failed: ${message}`);
     }
+  }
+
+  /** Extract the AssetRef from a Stellar payment operation. */
+  private extractAssetFromOperation(op: any): AssetRef {
+    // Native XLM
+    if (op.asset === undefined || op.asset === null) {
+      return { code: "XLM", issuer: null };
+    }
+    // Issued asset (credit_alphanum4 or credit_alphanum12)
+    if (op.asset.code && op.asset.issuer) {
+      return { code: op.asset.code, issuer: op.asset.issuer };
+    }
+    // Fallback: try to read from the asset property
+    const assetCode = typeof op.asset === "object" ? op.asset.code : "XLM";
+    const assetIssuer = typeof op.asset === "object" ? op.asset.issuer : null;
+    return { code: assetCode || "XLM", issuer: assetIssuer };
   }
 
   /** Advance any pending cash-outs by polling the off-ramp adapter. */

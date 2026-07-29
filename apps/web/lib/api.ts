@@ -45,9 +45,15 @@ export const api = {
 
   getLink: (id: string) => http<LinkWithRequest>(`/links/${id}`),
 
-  cashOut: (id: string, targetCurrency: string, payoutFields: Record<string, string> = {}) =>
-    http<{ job: { jobId: string; status: string; targetAmount: string; targetCurrency: string } }>(
-      `/links/${id}/cash-out`,
-      { method: "POST", body: JSON.stringify({ targetCurrency, payoutFields }) },
-    ),
-};
+   cashOut: (id: string, targetCurrency: string, payoutFields: Record<string, string> = {}) =>
+     http<{ job: { jobId: string; status: string; targetAmount: string; targetCurrency: string } }>(
+       `/links/${id}/cash-out`,
+       { method: "POST", body: JSON.stringify({ targetCurrency, payoutFields }) },
+     ),
+
+   submitPayment: (id: string, signedXdr: string) =>
+     http<{ txHash: string }>(
+       `/links/${id}/submit`,
+       { method: "POST", body: JSON.stringify({ signedXdr }) },
+     ),
+ };
