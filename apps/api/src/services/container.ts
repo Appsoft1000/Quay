@@ -3,7 +3,8 @@ import { resolveStellarConfig, StellarRail, HorizonWatcher } from "@checkout/ste
 import { MockAnchorOffRamp, TestAnchorOffRamp } from "@checkout/offramp";
 import type { OffRampPort } from "@checkout/core";
 import { env } from "../env";
-import { createDb, bootstrap } from "../db/client";
+import { createDb, bootstrap, type DB } from "../db/client";
+import { type Client } from "@libsql/client";
 import {
   DrizzleLinkRepository,
   DrizzleSellerRepository,
@@ -19,6 +20,9 @@ export interface Container {
   sellers: DrizzleSellerRepository;
   webhooks: DrizzleWebhookRepository;
   config: { network: string; horizonUrl: string; sellerWallet: string };
+  db: DB;
+  client: Client;
+  watcherLoop: WatcherLoop;
   start(): void;
   stop(): void;
 }
@@ -72,6 +76,9 @@ export async function createContainer(): Promise<Container> {
     sellers: sellersRepo,
     webhooks: webhooksRepo,
     config: { network: stellar.network, horizonUrl: stellar.horizonUrl, sellerWallet },
+    db,
+    client,
+    watcherLoop: loop,
     start() {
       loop.start();
       stopPoller = startCashOutPoller(service, Math.max(3000, env.pollMs));
@@ -83,12 +90,6 @@ export async function createContainer(): Promise<Container> {
   };
 }
 
-/**
- * Resolves the seller's public key, plus its Keypair when we actually hold the
- * secret in-memory (auto-generated testnet keypair, or DEFAULT_SELLER_SECRET
- * explicitly supplied). The Keypair is only needed to sign the SEP-10 auth
- * challenge for `OFFRAMP=testanchor` — never persisted beyond this process.
- */
 function resolveSellerKeypairOrWallet(): { keypair: Keypair | null; publicKey: string } {
   if (env.defaultSellerWallet) {
     if (!StrKey.isValidEd25519PublicKey(env.defaultSellerWallet)) {
@@ -106,7 +107,6 @@ function resolveSellerKeypairOrWallet(): { keypair: Keypair | null; publicKey: s
   if (env.network === "public") {
     throw new Error("Set DEFAULT_SELLER_WALLET to your wallet address before running on public network");
   }
-  // Testnet convenience: generate a throwaway account and tell the operator how to fund it.
   const kp = Keypair.random();
   const pub = kp.publicKey();
   console.log(
@@ -127,7 +127,6 @@ function resolveSellerKeypairOrWallet(): { keypair: Keypair | null; publicKey: s
 
 function createOffRamp(sellerKeypair: Keypair | null): OffRampPort {
   if (env.offramp === "mock") {
-    // Demo off-ramp: settles 8s after a seller triggers cash-out. NOT a real anchor.
     return new MockAnchorOffRamp({ settleAfterMs: 8000 });
   }
   if (!sellerKeypair) {

@@ -7,6 +7,11 @@ import {
 } from "@checkout/core";
 import type { LinkService } from "../services/link-service";
 
+export interface WatcherStatus {
+  lastTickAt: number | null;
+  lastError: string | null;
+}
+
 /**
  * Polling settlement watcher.
  *
@@ -19,6 +24,7 @@ import type { LinkService } from "../services/link-service";
 export class WatcherLoop {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
+  private status: WatcherStatus = { lastTickAt: null, lastError: null };
 
   constructor(
     private readonly deps: {
@@ -31,6 +37,10 @@ export class WatcherLoop {
     },
   ) {}
 
+  getStatus(): WatcherStatus {
+    return this.status;
+  }
+
   start(): void {
     if (this.running) return;
     this.running = true;
@@ -38,8 +48,11 @@ export class WatcherLoop {
       if (!this.running) return;
       try {
         await this.runOnce();
+        this.status = { lastTickAt: Date.now(), lastError: null };
       } catch (err) {
-        this.deps.log?.(`watcher tick error: ${stringifyErr(err)}`);
+        const message = stringifyErr(err);
+        this.status = { ...this.status, lastError: message };
+        this.deps.log?.(`watcher tick error: ${message}`);
       } finally {
         if (this.running) this.timer = setTimeout(tick, this.deps.pollMs);
       }
