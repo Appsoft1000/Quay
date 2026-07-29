@@ -150,6 +150,7 @@ pnpm sweep       # pre-entry ritual: uptime + synthetic checks against the live 
 
 - **[Architecture](docs/ARCHITECTURE.md)** — package graph, the three ports, sequence diagrams for each flow, the status machine, and how to add a new chain/anchor/rail.
 - **[HTTP API reference](docs/API.md)** — endpoints, request/response shapes, and webhook delivery.
+- **[SCF Build proposal](docs/PROPOSAL.md)** — the problem, the wedge, milestones, budget, traction, and risk register.
 - **[Contributing](CONTRIBUTING.md)** — setup, the check suite, and PR guidelines.
 - **[Security policy](SECURITY.md)** — how to report a vulnerability privately.
 - **[Code of conduct](CODE_OF_CONDUCT.md)**.
