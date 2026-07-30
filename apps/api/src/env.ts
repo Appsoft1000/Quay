@@ -54,6 +54,14 @@ if (watchMode !== "poll" && watchMode !== "stream") {
   throw new Error(`WATCH_MODE must be "poll" or "stream", got "${watchMode}"`);
 }
 
+// "memo" (default): correlation via MEMO_TEXT. "muxed": SEP-23 M-address, no
+// memo needed — survives wallets that drop/mangle memos. Some older wallets
+// refuse M... destinations, so this stays opt-in until measured in practice.
+const correlation = (process.env.CORRELATION ?? "memo") as "memo" | "muxed";
+if (correlation !== "memo" && correlation !== "muxed") {
+  throw new Error(`CORRELATION must be "memo" or "muxed", got "${correlation}"`);
+}
+
 export const env = {
   network,
   horizonUrl: process.env.HORIZON_URL || undefined,
@@ -69,6 +77,7 @@ export const env = {
   // "poll" (default, restart-safe MVP behavior) or "stream" (Horizon SSE,
   // opt-in until proven). See packages/stellar/src/streaming-horizon-watcher.ts.
   watchMode,
+  correlation,
   corsOrigins: (process.env.CORS_ORIGINS ?? "http://localhost:3000")
     .split(",")
     .map((s) => s.trim())

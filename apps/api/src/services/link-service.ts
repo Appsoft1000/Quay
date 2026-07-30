@@ -15,8 +15,8 @@ import {
   type SellerRepository,
   type WebhookRepository,
 } from "@checkout/core";
-import { resolveAsset, type StellarConfig } from "@checkout/stellar";
-import { newId, newReference } from "./ids";
+import { canReceiveAsset, resolveAsset, type StellarConfig } from "@checkout/stellar";
+import { newId, newMuxedId, newReference } from "./ids";
 import { WebhookSender } from "./webhook-sender";
 
 export interface LinkWithRequest {
@@ -231,6 +231,8 @@ export class LinkService {
        * "always available" probe so existing test fixtures stay lightweight.
        */
       health?: AnchorHealth;
+      // "memo" (default) or "muxed" — see packages/stellar/src/stellar-rail.ts.
+      correlation: "memo" | "muxed";
     },
   ) {
     this.sender = new WebhookSender(deps.webhooks);
@@ -244,6 +246,7 @@ export class LinkService {
       amount: link.amount,
       asset: link.asset,
       reference: link.reference,
+      muxedId: link.muxedId,
       message: link.title,
     });
   }
@@ -255,11 +258,21 @@ export class LinkService {
       ? Date.now() + body.expiresInMinutes * 60_000
       : null;
 
+    let muxedId: string | null = null;
+    if (this.deps.correlation === "muxed") {
+      const preflight = await canReceiveAsset(this.deps.stellar.horizonUrl, seller.wallet, asset);
+      if (!preflight.ok) {
+        throw new HttpError(422, `Cannot create a muxed payment link: ${preflight.reason}`);
+      }
+      muxedId = newMuxedId();
+    }
+
     const link = await this.deps.links.create({
       id: newId("lnk"),
       reference: newReference(),
       sellerId: seller.id,
       destination: seller.wallet,
+      muxedId,
       title: body.title,
       amount: normalizeAmount(body.amount),
       asset,

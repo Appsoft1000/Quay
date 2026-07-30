@@ -12,7 +12,7 @@ const BOOTSTRAP_SQL = [
    )`,
   `CREATE TABLE IF NOT EXISTS links (
      id TEXT PRIMARY KEY, reference TEXT NOT NULL UNIQUE, seller_id TEXT NOT NULL,
-     destination TEXT NOT NULL, title TEXT NOT NULL, amount TEXT NOT NULL,
+     destination TEXT NOT NULL, muxed_id TEXT, title TEXT NOT NULL, amount TEXT NOT NULL,
      asset_code TEXT NOT NULL, asset_issuer TEXT, status TEXT NOT NULL,
      tx_hash TEXT, payer TEXT, paid_amount TEXT,
      offramp_job_id TEXT, offramp_target_currency TEXT, offramp_status TEXT,
@@ -41,9 +41,22 @@ export function createDb(databaseUrl: string, authToken?: string): { db: DB; cli
   return { db, client };
 }
 
+// Additive column added after the initial release. `CREATE TABLE IF NOT EXISTS`
+// above won't touch an existing table, so add it out-of-band; ignore the
+// "duplicate column" error on databases that already have it.
+const MIGRATIONS_SQL = [`ALTER TABLE links ADD COLUMN muxed_id TEXT`];
+
 export async function bootstrap(client: Client): Promise<void> {
   for (const sql of BOOTSTRAP_SQL) {
     await client.execute(sql);
+  }
+  for (const sql of MIGRATIONS_SQL) {
+    try {
+      await client.execute(sql);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (!message.toLowerCase().includes("duplicate column")) throw err;
+    }
   }
 }
 

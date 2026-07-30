@@ -70,6 +70,7 @@ export async function createContainer(): Promise<Container> {
     offramp,
     stellar,
     health: anchorHealth,
+    correlation: env.correlation,
   });
 
   const loop = new WatcherLoop({

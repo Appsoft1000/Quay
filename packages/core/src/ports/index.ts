@@ -13,7 +13,7 @@ export interface PaymentRequest {
   destination: string;
   amount: string;
   asset: AssetRef;
-  memo: string; // correlation reference echoed back on-chain
+  memo: string | null; // correlation reference echoed back on-chain; null in muxed mode
 }
 
 export interface RailPort {
@@ -23,6 +23,9 @@ export interface RailPort {
     amount: string;
     asset: AssetRef;
     reference: string;
+    /** SEP-23 muxed id. When present, the rail encodes it into an M-address
+     *  destination and omits the memo instead of using MEMO_TEXT correlation. */
+    muxedId?: string | null;
     message?: string;
   }): PaymentRequest;
 
@@ -106,6 +109,7 @@ export interface CreateLinkInput {
   reference: string;
   sellerId: string;
   destination: string;
+  muxedId: string | null;
   title: string;
   amount: string;
   asset: AssetRef;
