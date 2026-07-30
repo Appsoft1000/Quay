@@ -1,7 +1,7 @@
 # Stellar Checkout
 
-[![CI](https://github.com/chris-ostrovskis/Quay/actions/workflows/ci.yml/badge.svg)](https://github.com/chris-ostrovskis/Quay/actions/workflows/ci.yml)
-[![Anchor Probe](https://github.com/chris-ostrovskis/Quay/actions/workflows/anchor-probe.yml/badge.svg)](https://github.com/chris-ostrovskis/Quay/actions/workflows/anchor-probe.yml)
+[![CI](https://github.com/determined-001/Quay/actions/workflows/ci.yml/badge.svg)](https://github.com/determined-001/Quay/actions/workflows/ci.yml)
+[![Anchor Probe](https://github.com/determined-001/Quay/actions/workflows/anchor-probe.yml/badge.svg)](https://github.com/determined-001/Quay/actions/workflows/anchor-probe.yml)
 
 Stellar Checkout is the open-source, non-custodial merchant checkout for the Stellar anchor network — the inbound counterpart to the Stellar Disbursement Platform.
 

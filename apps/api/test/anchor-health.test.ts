@@ -676,11 +676,16 @@ describe("LinkService.pollCashOuts attribution", () => {
     await service.pollCashOuts();
     expect(service.lastPollErrorFor("lnk_2")).toContain("first attempt fails");
 
-    // Per-job backoff sets next_try_at into the future; wait it out so the
-    // next poll actually re-hits status() and clears the error on success.
-    await new Promise((r) => setTimeout(r, 2_100));
+    // Per-job backoff sets next_try_at into the future. Advance the clock past
+    // it rather than sleeping: the first backoff is POLL_BACKOFF_BASE_MS (2s),
+    // and a real 2.1s sleep left only a 100ms margin, which a loaded machine
+    // eats — the poll then hit the `now < next` skip and the error was never
+    // cleared. Moving the clock makes the wait exact and the test instant.
+    const realNow = Date.now.bind(Date);
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => realNow() + 10_000);
     fail = false;
     await service.pollCashOuts();
+    nowSpy.mockRestore();
     expect(service.lastPollErrorFor("lnk_2")).toBeNull();
     expect((await repo.findById("lnk_2"))!.status).toBe("offramp_settled");
   });
