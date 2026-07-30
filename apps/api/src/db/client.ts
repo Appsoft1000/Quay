@@ -39,6 +39,11 @@ const BOOTSTRAP_SQL = [
      status TEXT NOT NULL, external_status TEXT, last_error TEXT,
      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
    )`,
+  `CREATE TABLE IF NOT EXISTS seller_kyc (
+     seller_id TEXT PRIMARY KEY, customer_id TEXT, status TEXT NOT NULL,
+     required_fields TEXT NOT NULL, fields_encrypted TEXT NOT NULL,
+     message TEXT, last_synced_at INTEGER, updated_at INTEGER NOT NULL
+   )`,
   `CREATE TABLE IF NOT EXISTS watcher_cursors (
      account TEXT PRIMARY KEY, cursor TEXT NOT NULL, updated_at INTEGER NOT NULL
    )`,

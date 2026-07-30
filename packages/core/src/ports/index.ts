@@ -77,7 +77,9 @@ export interface OffRampQuote {
 /** Where the seller wants their local-currency payout to land. */
 export interface SellerPayoutRef {
   currency: string; // "NGN"
-  // Opaque to the domain; an anchor adapter interprets these (bank/account, etc.).
+  // Opaque to the domain; an anchor adapter interprets these (bank/account,
+  // routing, etc.). NOT identity/KYC data — that's `KycPort`, submitted once
+  // per seller ahead of time, never derived from a cash-out request.
   fields: Record<string, string>;
 }
 
@@ -158,6 +160,67 @@ export interface OffRampStateRepository {
     jobId: string,
     patch: Partial<Pick<StoredOffRampJob, "targetAmount" | "status" | "externalStatus" | "lastError">>,
   ): Promise<void>;
+}
+
+// ---------------------------------------------------------------------------
+// KYC port (SEP-12)
+// ---------------------------------------------------------------------------
+// No real anchor will pay out against fabricated identity data, so this is
+// modeled as its own lifecycle — separate from a cash-out request — keyed by
+// seller, never by link: one seller can hold many links, but their identity
+// is submitted once and reused. `seller_initiated` mode still needs it for
+// the anchor's own compliance requirements, even though custody never moves
+// through us.
+
+export type KycStatus = "unsubmitted" | "NEEDS_INFO" | "PROCESSING" | "ACCEPTED" | "REJECTED";
+
+export interface KycFieldSpec {
+  name: string; // e.g. "first_name"
+  type: string; // anchor-defined: "string" | "date" | "binary" | "number" | ...
+  description?: string;
+  optional: boolean;
+  choices?: string[];
+}
+
+export interface KycRecord {
+  sellerId: string;
+  /** Anchor-assigned customer id, once one exists — reused on later GET/PUT
+   *  calls instead of re-resolving by account, per SEP-12. */
+  customerId: string | null;
+  status: KycStatus;
+  /** Latest field requirements discovered from the anchor. Empty once ACCEPTED. */
+  requiredFields: KycFieldSpec[];
+  /** Values we have on file for this seller. PII — never log, never put on a
+   *  webhook payload or a `/links` response; encrypted at rest by the repo. */
+  providedFields: Record<string, string>;
+  /** Anchor's status/rejection message, verbatim. */
+  message: string | null;
+  lastSyncedAt: number | null;
+  updatedAt: number;
+}
+
+/** Thrown by {@link KycPort.submit} when required fields are missing, naming
+ *  exactly which ones — the API layer maps this to `422 kyc_required`. */
+export class KycRequiredError extends Error {
+  constructor(readonly missingFields: string[]) {
+    super(`Missing required KYC fields: ${missingFields.join(", ")}`);
+    this.name = "KycRequiredError";
+  }
+}
+
+export interface KycPort {
+  /** Refreshes from the anchor (if applicable) and persists the result. */
+  status(sellerId: string): Promise<KycRecord>;
+  /** Submits/updates fields. Throws {@link KycRequiredError} if a required
+   *  field is still missing after merging with what's already on file. */
+  submit(sellerId: string, fields: Record<string, string>): Promise<KycRecord>;
+}
+
+/** Persistence for `KycRecord`, keyed by seller. `providedFields` is PII and
+ *  must be encrypted at rest by the implementation. */
+export interface KycRepository {
+  get(sellerId: string): Promise<KycRecord | null>;
+  save(record: KycRecord): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------

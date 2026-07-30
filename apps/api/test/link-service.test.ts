@@ -1,9 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { OffRampJobNotFoundError, type RailPort } from "@checkout/core";
+import { OffRampJobNotFoundError, type KycPort, type RailPort } from "@checkout/core";
 import { MockAnchorOffRamp } from "@checkout/offramp";
 import type { StellarConfig } from "@checkout/stellar";
 import { LinkService } from "../src/services/link-service";
-import { FakeLinkRepository, FakeOffRampStateRepository, FakeWebhookRepository, ScriptedOffRamp, makeLink } from "./fakes";
+import {
+  AlwaysAcceptedKyc,
+  FakeLinkRepository,
+  FakeOffRampStateRepository,
+  FakeWebhookRepository,
+  ScriptedKyc,
+  ScriptedOffRamp,
+  makeLink,
+} from "./fakes";
 
 const STELLAR: StellarConfig = {
   network: "testnet",
@@ -26,6 +34,7 @@ function makeService(opts: {
   offramp: ScriptedOffRamp | MockAnchorOffRamp;
   offrampState: FakeOffRampStateRepository;
   webhooks?: FakeWebhookRepository;
+  kyc?: KycPort;
 }): LinkService {
   return new LinkService({
     links: opts.links,
@@ -34,6 +43,7 @@ function makeService(opts: {
     rail: UNUSED_RAIL,
     offramp: opts.offramp,
     offrampState: opts.offrampState,
+    kyc: opts.kyc ?? new AlwaysAcceptedKyc(),
     stellar: STELLAR,
     correlation: "memo",
   });
@@ -150,6 +160,42 @@ describe("LinkService.backfillLostOffRampJobs", () => {
 
     expect(fixed).toBe(0);
     expect(links.get("lnk_1")?.status).toBe("paid");
+  });
+});
+
+describe("LinkService.triggerCashOut — KYC gate", () => {
+  it("rejects with 403 kyc_required when the seller's KYC isn't ACCEPTED", async () => {
+    const links = new FakeLinkRepository([makeLink({ status: "paid" })]);
+    const kyc = new ScriptedKyc();
+    kyc.statusImpl = async (sellerId) => ({
+      sellerId,
+      customerId: null,
+      status: "NEEDS_INFO",
+      requiredFields: [],
+      providedFields: {},
+      message: null,
+      lastSyncedAt: null,
+      updatedAt: Date.now(),
+    });
+    const service = makeService({ links, offramp: new ScriptedOffRamp(), offrampState: new FakeOffRampStateRepository(), kyc });
+
+    await expect(
+      service.triggerCashOut("lnk_1", { targetCurrency: "NGN", payoutFields: {} }),
+    ).rejects.toMatchObject({ status: 403, message: "kyc_required" });
+    // Never reached the off-ramp adapter, and the link stays untouched.
+    expect(links.get("lnk_1")?.status).toBe("paid");
+  });
+
+  it("proceeds to the off-ramp adapter once KYC is ACCEPTED", async () => {
+    const links = new FakeLinkRepository([makeLink({ status: "paid" })]);
+    const offrampState = new FakeOffRampStateRepository();
+    const offramp = new MockAnchorOffRamp({ state: offrampState, settleAfterMs: 60_000 });
+    const service = makeService({ links, offramp, offrampState, kyc: new AlwaysAcceptedKyc() });
+
+    const job = await service.triggerCashOut("lnk_1", { targetCurrency: "NGN", payoutFields: {} });
+
+    expect(job.status).toBe("pending");
+    expect(links.get("lnk_1")?.status).toBe("offramp_pending");
   });
 });
 

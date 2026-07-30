@@ -1,15 +1,17 @@
 import { Keypair, StrKey } from "@stellar/stellar-sdk";
 import { resolveStellarConfig, StellarRail, HorizonWatcher, StreamingHorizonWatcher } from "@checkout/stellar";
-import { MockAnchorOffRamp, TestAnchorOffRamp } from "@checkout/offramp";
-import type { OffRampPort, OffRampStateRepository } from "@checkout/core";
+import { MockAnchorOffRamp, NoKycRequired, TestAnchorKyc, TestAnchorOffRamp } from "@checkout/offramp";
+import type { KycPort, OffRampPort, OffRampStateRepository } from "@checkout/core";
 import { env } from "../env";
-import { createDb, bootstrap } from "../db/client";
+import { createDb, bootstrap, type DB } from "../db/client";
+import { parsePiiKey } from "../crypto/pii";
 import {
   DrizzleLinkRepository,
   DrizzleSellerRepository,
   DrizzleWebhookRepository,
   DrizzleWatcherStateRepository,
   DrizzleOffRampStateRepository,
+  DrizzleKycRepository,
 } from "../repos/index";
 import { LinkService, AnchorHealth } from "./link-service";
 import {
@@ -25,6 +27,7 @@ export interface Container {
   links: DrizzleLinkRepository;
   sellers: DrizzleSellerRepository;
   webhooks: DrizzleWebhookRepository;
+  kyc: KycPort;
   config: { network: string; horizonUrl: string; sellerWallet: string };
   start(): void;
   stop(): void;
@@ -58,6 +61,7 @@ export async function createContainer(): Promise<Container> {
       ? new StreamingHorizonWatcher(stellar.horizonUrl, { log: (m) => console.log(`[watcher:stream] ${m}`) })
       : new HorizonWatcher(stellar.horizonUrl);
   const offramp = createOffRamp(seller.keypair, offrampStateRepo);
+  const kyc = createKyc(seller.keypair, db);
 
   // Anchor health probe + circuit breaker (issue #19, 3.7). In mock mode the
   // probe is disabled and short-circuits to "always available" so the dev
@@ -71,6 +75,7 @@ export async function createContainer(): Promise<Container> {
     rail,
     offramp,
     offrampState: offrampStateRepo,
+    kyc,
     stellar,
     health: anchorHealth,
     correlation: env.correlation,
@@ -102,6 +107,7 @@ export async function createContainer(): Promise<Container> {
     links: linksRepo,
     sellers: sellersRepo,
     webhooks: webhooksRepo,
+    kyc,
     config: { network: stellar.network, horizonUrl: stellar.horizonUrl, sellerWallet },
     start() {
       loop.start();
@@ -203,4 +209,21 @@ function createOffRamp(sellerKeypair: Keypair | null, state: OffRampStateReposit
     );
   }
   return new TestAnchorOffRamp({ sellerKeypair, state });
+}
+
+function createKyc(sellerKeypair: Keypair | null, db: DB): KycPort {
+  if (env.offramp === "mock") {
+    // No real anchor, nothing to be compliant with — never gates the simulated cash-out.
+    return new NoKycRequired();
+  }
+  if (!sellerKeypair) {
+    throw new Error(
+      "OFFRAMP=testanchor requires the seller's secret key to sign SEP-10 auth: " +
+        "set DEFAULT_SELLER_SECRET (matching DEFAULT_SELLER_WALLET), or leave " +
+        "DEFAULT_SELLER_WALLET unset on testnet to use the auto-generated keypair.",
+    );
+  }
+  // env.kycEncryptionKey is guaranteed set when OFFRAMP=testanchor (see env.ts).
+  const repo = new DrizzleKycRepository(db, parsePiiKey(env.kycEncryptionKey as string));
+  return new TestAnchorKyc({ sellerKeypair, repo });
 }
