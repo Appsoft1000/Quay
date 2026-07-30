@@ -27,6 +27,18 @@ const BOOTSTRAP_SQL = [
      event TEXT NOT NULL, status_code INTEGER, ok INTEGER NOT NULL,
      error TEXT, created_at INTEGER NOT NULL
    )`,
+  `CREATE TABLE IF NOT EXISTS offramp_quotes (
+     quote_id TEXT PRIMARY KEY, link_id TEXT NOT NULL,
+     sell_asset_code TEXT NOT NULL, sell_asset_issuer TEXT, sell_amount TEXT NOT NULL,
+     buy_currency TEXT NOT NULL, price TEXT NOT NULL,
+     expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL
+   )`,
+  `CREATE TABLE IF NOT EXISTS offramp_jobs (
+     job_id TEXT PRIMARY KEY, link_id TEXT NOT NULL, anchor TEXT NOT NULL,
+     target_currency TEXT NOT NULL, target_amount TEXT NOT NULL, rate TEXT NOT NULL,
+     status TEXT NOT NULL, external_status TEXT, last_error TEXT,
+     created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+   )`,
   `CREATE TABLE IF NOT EXISTS watcher_cursors (
      account TEXT PRIMARY KEY, cursor TEXT NOT NULL, updated_at INTEGER NOT NULL
    )`,

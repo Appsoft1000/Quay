@@ -1,7 +1,7 @@
 import { Keypair, StrKey } from "@stellar/stellar-sdk";
 import { resolveStellarConfig, StellarRail, HorizonWatcher, StreamingHorizonWatcher } from "@checkout/stellar";
 import { MockAnchorOffRamp, TestAnchorOffRamp } from "@checkout/offramp";
-import type { OffRampPort } from "@checkout/core";
+import type { OffRampPort, OffRampStateRepository } from "@checkout/core";
 import { env } from "../env";
 import { createDb, bootstrap } from "../db/client";
 import {
@@ -9,6 +9,7 @@ import {
   DrizzleSellerRepository,
   DrizzleWebhookRepository,
   DrizzleWatcherStateRepository,
+  DrizzleOffRampStateRepository,
 } from "../repos/index";
 import { LinkService, AnchorHealth } from "./link-service";
 import {
@@ -45,6 +46,7 @@ export async function createContainer(): Promise<Container> {
   const sellersRepo = new DrizzleSellerRepository(db);
   const webhooksRepo = new DrizzleWebhookRepository(db);
   const stateRepo = new DrizzleWatcherStateRepository(db);
+  const offrampStateRepo = new DrizzleOffRampStateRepository(db);
 
   const seller = resolveSellerKeypairOrWallet();
   const sellerWallet = seller.publicKey;
@@ -55,7 +57,7 @@ export async function createContainer(): Promise<Container> {
     env.watchMode === "stream"
       ? new StreamingHorizonWatcher(stellar.horizonUrl, { log: (m) => console.log(`[watcher:stream] ${m}`) })
       : new HorizonWatcher(stellar.horizonUrl);
-  const offramp = createOffRamp(seller.keypair);
+  const offramp = createOffRamp(seller.keypair, offrampStateRepo);
 
   // Anchor health probe + circuit breaker (issue #19, 3.7). In mock mode the
   // probe is disabled and short-circuits to "always available" so the dev
@@ -68,10 +70,20 @@ export async function createContainer(): Promise<Container> {
     webhooks: webhooksRepo,
     rail,
     offramp,
+    offrampState: offrampStateRepo,
     stellar,
     health: anchorHealth,
     correlation: env.correlation,
   });
+
+  // A link stuck in `offramp_pending` whose job has no row in offramp_jobs was
+  // orphaned by a restart before this state was persisted (or, going forward,
+  // a genuinely lost job). Recoverable state doesn't exist for it — fail it out
+  // so the seller isn't stuck in silent limbo.
+  const backfilled = await service.backfillLostOffRampJobs();
+  if (backfilled > 0) {
+    console.log(`[offramp] backfilled ${backfilled} link(s) stuck with lost job state -> offramp_failed`);
+  }
 
   const loop = new WatcherLoop({
     watcher,
@@ -178,10 +190,10 @@ function resolveSellerKeypairOrWallet(): { keypair: Keypair | null; publicKey: s
   return { keypair: kp, publicKey: pub };
 }
 
-function createOffRamp(sellerKeypair: Keypair | null): OffRampPort {
+function createOffRamp(sellerKeypair: Keypair | null, state: OffRampStateRepository): OffRampPort {
   if (env.offramp === "mock") {
     // Demo off-ramp: settles 8s after a seller triggers cash-out. NOT a real anchor.
-    return new MockAnchorOffRamp({ settleAfterMs: 8000 });
+    return new MockAnchorOffRamp({ state, settleAfterMs: 8000 });
   }
   if (!sellerKeypair) {
     throw new Error(
@@ -190,5 +202,5 @@ function createOffRamp(sellerKeypair: Keypair | null): OffRampPort {
         "DEFAULT_SELLER_WALLET unset on testnet to use the auto-generated keypair.",
     );
   }
-  return new TestAnchorOffRamp({ sellerKeypair });
+  return new TestAnchorOffRamp({ sellerKeypair, state });
 }
