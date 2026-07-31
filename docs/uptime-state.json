@@ -1,13 +1,13 @@
 {
   "targets": {
     "api": {
-      "consecutiveFailures": 3,
+      "consecutiveFailures": 4,
       "lastStatus": "down",
-      "lastCheckedAt": "2026-07-31T08:12:39.890Z",
+      "lastCheckedAt": "2026-07-31T11:00:30.184Z",
       "today": {
         "date": "2026-07-31",
         "up": 0,
-        "down": 3
+        "down": 4
       },
       "history": [
         {
@@ -31,10 +31,10 @@
     "web": {
       "consecutiveFailures": 0,
       "lastStatus": "up",
-      "lastCheckedAt": "2026-07-31T08:12:40.147Z",
+      "lastCheckedAt": "2026-07-31T11:00:30.339Z",
       "today": {
         "date": "2026-07-31",
-        "up": 3,
+        "up": 4,
         "down": 0
       },
       "history": [
@@ -57,13 +57,13 @@
       "lastError": null
     },
     "synthetic": {
-      "consecutiveFailures": 3,
+      "consecutiveFailures": 4,
       "lastStatus": "down",
-      "lastCheckedAt": "2026-07-31T08:12:55.147Z",
+      "lastCheckedAt": "2026-07-31T11:00:45.341Z",
       "today": {
         "date": "2026-07-31",
         "up": 0,
-        "down": 3
+        "down": 4
       },
       "history": [
         {
