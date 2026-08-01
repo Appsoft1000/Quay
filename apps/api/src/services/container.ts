@@ -1,4 +1,5 @@
 import { Keypair, StrKey } from "@stellar/stellar-sdk";
+import { randomBytes } from "node:crypto";
 import { resolveStellarConfig, StellarRail, HorizonWatcher, StreamingHorizonWatcher } from "@checkout/stellar";
 import { MockAnchorOffRamp, NoKycRequired, TestAnchorKyc, TestAnchorOffRamp } from "@checkout/offramp";
 import type { KycPort, OffRampPort, OffRampStateRepository } from "@checkout/core";
@@ -21,6 +22,10 @@ import {
   type AccountCircuitBreakerStatus,
   type WatcherMetrics,
 } from "../worker/watcher-loop";
+import { ChallengeService } from "./challenge";
+import { horizonSignerFetcher } from "./horizon-signers";
+import { SessionIssuer } from "./session";
+import type { StellarTomlConfig } from "../routes/well-known";
 
 export interface Container {
   service: LinkService;
@@ -29,6 +34,7 @@ export interface Container {
   webhooks: DrizzleWebhookRepository;
   kyc: KycPort;
   config: { network: string; horizonUrl: string; sellerWallet: string };
+  auth: { challenge: ChallengeService; session: SessionIssuer; stellarToml: StellarTomlConfig };
   start(): void;
   stop(): void;
   getWatcherCircuitBreakerStatus(): AccountCircuitBreakerStatus[];
@@ -99,6 +105,22 @@ export async function createContainer(): Promise<Container> {
     log: (m) => console.log(`[watcher] ${m}`),
   });
 
+  const serverKeypair = resolveServerSigningKeypair();
+  const challenge = new ChallengeService({
+    serverKeypair,
+    homeDomain: env.homeDomain,
+    webAuthDomain: env.webAuthDomain,
+    networkPassphrase: stellar.networkPassphrase,
+    fetchAccountSigners: horizonSignerFetcher(stellar.horizonUrl),
+  });
+  const session = new SessionIssuer(resolveJwtSecret());
+  const stellarToml: StellarTomlConfig = {
+    signingKey: serverKeypair.publicKey(),
+    webAuthEndpoint: `https://${env.webAuthDomain}/auth`,
+    networkPassphrase: stellar.networkPassphrase,
+    orgName: env.defaultSellerName,
+  };
+
   let stopPoller: (() => void) | null = null;
   let stopProbe: (() => void) | null = null;
 
@@ -109,6 +131,7 @@ export async function createContainer(): Promise<Container> {
     webhooks: webhooksRepo,
     kyc,
     config: { network: stellar.network, horizonUrl: stellar.horizonUrl, sellerWallet },
+    auth: { challenge, session, stellarToml },
     start() {
       loop.start();
       stopPoller = startCashOutPoller(service, Math.max(3000, env.pollMs));
@@ -226,4 +249,42 @@ function createKyc(sellerKeypair: Keypair | null, db: DB): KycPort {
   // env.kycEncryptionKey is guaranteed set when OFFRAMP=testanchor (see env.ts).
   const repo = new DrizzleKycRepository(db, parsePiiKey(env.kycEncryptionKey as string));
   return new TestAnchorKyc({ sellerKeypair, repo });
+}
+
+/**
+ * Resolves the keypair that SIGNS SEP-10 challenges — the platform's own login
+ * identity, distinct from any seller's wallet. Required to be stable
+ * (SERVER_SIGNING_SECRET) on public network; auto-generates a throwaway testnet
+ * keypair otherwise, same convenience as `resolveSellerKeypairOrWallet`.
+ */
+function resolveServerSigningKeypair(): Keypair {
+  if (env.serverSigningSecret) return Keypair.fromSecret(env.serverSigningSecret);
+  if (env.network === "public") {
+    throw new Error("Set SERVER_SIGNING_SECRET before running on public network (SEP-10 needs a stable signing key)");
+  }
+  const kp = Keypair.random();
+  console.log(
+    [
+      "",
+      "──────────────────────────────────────────────────────────────────",
+      " No SERVER_SIGNING_SECRET set — generated a TESTNET SEP-10 signing keypair.",
+      ` Signing key (in stellar.toml): ${kp.publicKey()}`,
+      " Set SERVER_SIGNING_SECRET in .env to keep this stable across restarts —",
+      " every restart otherwise invalidates in-flight sessions and stellar.toml.",
+      "──────────────────────────────────────────────────────────────────",
+      "",
+    ].join("\n"),
+  );
+  return kp;
+}
+
+/** Resolves the JWT session secret. Required on public network; auto-generates
+ *  an ephemeral one on testnet (sessions won't survive a restart). */
+function resolveJwtSecret(): string {
+  if (env.jwtSecret) return env.jwtSecret;
+  if (env.network === "public") {
+    throw new Error("Set JWT_SECRET before running on public network (needed to mint stable sessions)");
+  }
+  console.log(" No JWT_SECRET set — generated an ephemeral testnet session secret (won't survive a restart).");
+  return randomBytes(32).toString("hex");
 }

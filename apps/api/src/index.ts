@@ -5,6 +5,8 @@ import { env } from "./env";
 import { createContainer } from "./services/container";
 import { linkRoutes } from "./routes/links";
 import { webhookRoutes } from "./routes/webhooks";
+import { authRoutes } from "./routes/auth";
+import { wellKnownRoutes } from "./routes/well-known";
 import { kycRoutes } from "./routes/kyc";
 import { rateLimit } from "./middleware/rate-limit";
 
@@ -49,6 +51,11 @@ async function main(): Promise<void> {
 
   app.route("/links", linkRoutes(container));
   app.route("/webhooks", webhookRoutes(container));
+  app.route(
+    "/auth",
+    authRoutes({ challenge: container.auth.challenge, session: container.auth.session, sellers: container.sellers }),
+  );
+  app.route("/.well-known", wellKnownRoutes(container.auth.stellarToml));
   app.route("/seller/kyc", kycRoutes(container));
 
   container.start();

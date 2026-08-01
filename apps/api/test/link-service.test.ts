@@ -38,7 +38,12 @@ function makeService(opts: {
 }): LinkService {
   return new LinkService({
     links: opts.links,
-    sellers: { getDefault: async () => ({ id: "sel_1", name: "Seller", wallet: "GSELLER", createdAt: 0 }), findById: async () => null },
+    sellers: {
+      getDefault: async () => ({ id: "sel_1", name: "Seller", wallet: "GSELLER", createdAt: 0 }),
+      findById: async () => null,
+      findByWallet: async () => null,
+      createIfAbsent: async () => ({ id: "sel_1", name: "Seller", wallet: "GSELLER", createdAt: 0 }),
+    },
     webhooks: opts.webhooks ?? new FakeWebhookRepository(),
     rail: UNUSED_RAIL,
     offramp: opts.offramp,
