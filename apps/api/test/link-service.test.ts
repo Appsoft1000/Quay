@@ -21,6 +21,7 @@ const STELLAR: StellarConfig = {
 };
 
 const UNUSED_RAIL: RailPort = {
+  async assertCanReceive() {},
   buildRequest() {
     throw new Error("not used in these tests");
   },

@@ -313,6 +313,7 @@ class FakeWebhookRepoForAnchor implements WebhookRepository {
 }
 
 class FakeRailForAnchor implements RailPort {
+  assertCanReceive = async (): Promise<void> => {};
   buildRequest = (input: Parameters<RailPort["buildRequest"]>[0]) => ({
     uri: `web+stellar:pay?destination=${input.destination}&memo=${input.reference}`,
     destination: input.destination,

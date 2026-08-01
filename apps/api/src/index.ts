@@ -20,17 +20,21 @@ async function main(): Promise<void> {
   app.use("*", cors({ origin: env.corsOrigins, allowMethods: ["GET", "POST", "PUT", "OPTIONS"] }));
   app.use("*", rateLimit({ windowMs: env.rateLimitWindowMs, max: env.rateLimitMax }));
 
-  app.get("/health", (ctx) =>
-    ctx.json({
+  app.get("/health", async (ctx) => {
+    const usdcTrustline = await container.service
+      .checkSellerUsdcTrustline()
+      .catch(() => ({ ok: false as const, reason: "check_failed", message: "trustline preflight check failed" }));
+    return ctx.json({
       ok: true,
       network: container.config.network,
       sellerWallet: container.config.sellerWallet,
+      usdcTrustline,
       // Anchor health probe + circuit breaker (issue #19, 3.7) so an operator
       // can tell "the anchor is down" apart from "the API is down" without
       // tailing logs.
       anchor: container.service.healthSnapshot(),
-    }),
-  );
+    });
+  });
 
   app.get("/ready", (ctx) => {
     const circuitBreakers = container.getWatcherCircuitBreakerStatus();

@@ -1,4 +1,5 @@
 import {
+  CannotReceiveError,
   canTransition,
   normalizeAmount,
   OffRampJobNotFoundError,
@@ -273,12 +274,25 @@ export class LinkService {
       ? Date.now() + body.expiresInMinutes * 60_000
       : null;
 
+    // Universal receive-preflight (issue #9): every link, not just muxed ones.
+    // Subsumes the muxed-only `canReceiveAsset` check that used to live in the
+    // branch below — this runs first and carries the richer 422 payload.
+    try {
+      await this.deps.rail.assertCanReceive(seller.wallet, asset);
+    } catch (err) {
+      if (err instanceof CannotReceiveError) {
+        throw new HttpError(422, "destination_cannot_receive", {
+          message: err.message,
+          reason: err.reason,
+          asset,
+          ...(err.trustlineUri ? { trustlineUri: err.trustlineUri } : {}),
+        });
+      }
+      throw err;
+    }
+
     let muxedId: string | null = null;
     if (this.deps.correlation === "muxed") {
-      const preflight = await canReceiveAsset(this.deps.stellar.horizonUrl, seller.wallet, asset);
-      if (!preflight.ok) {
-        throw new HttpError(422, `Cannot create a muxed payment link: ${preflight.reason}`);
-      }
       muxedId = newMuxedId();
     }
 
@@ -296,6 +310,24 @@ export class LinkService {
     metrics.linkStatusTransitionsTotal.inc({ to: link.status });
 
     return { link, request: this.buildRequest(link) };
+  }
+
+  /** Re-checks the seller's own USDC trustline (bypassing the preflight cache is
+   *  unnecessary — a 60s-stale "ok" or "revoked" is fine for a health check). */
+  async checkSellerUsdcTrustline(): Promise<
+    { ok: true } | { ok: false; reason: string; message: string; trustlineUri?: string }
+  > {
+    const seller = await this.deps.sellers.getDefault();
+    const asset = resolveAsset("USDC", this.deps.stellar);
+    try {
+      await this.deps.rail.assertCanReceive(seller.wallet, asset);
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof CannotReceiveError) {
+        return { ok: false, reason: err.reason, message: err.message, trustlineUri: err.trustlineUri };
+      }
+      throw err;
+    }
   }
 
   async listLinks(): Promise<PaymentLink[]> {
@@ -548,6 +580,7 @@ export class HttpError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly extra?: Record<string, unknown>,
   ) {
     super(message);
   }
