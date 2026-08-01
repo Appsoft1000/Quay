@@ -29,6 +29,7 @@ async function main(): Promise<void> {
       network: container.config.network,
       sellerWallet: container.config.sellerWallet,
       usdcTrustline,
+      horizon: container.horizonStatus(),
       // Anchor health probe + circuit breaker (issue #19, 3.7) so an operator
       // can tell "the anchor is down" apart from "the API is down" without
       // tailing logs.

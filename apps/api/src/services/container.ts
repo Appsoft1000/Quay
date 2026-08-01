@@ -1,6 +1,12 @@
 import { randomBytes } from "node:crypto";
 import { Keypair, StrKey } from "@stellar/stellar-sdk";
-import { resolveStellarConfig, StellarRail, HorizonWatcher, StreamingHorizonWatcher } from "@checkout/stellar";
+import {
+  resolveStellarConfig,
+  StellarRail,
+  HorizonWatcher,
+  StreamingHorizonWatcher,
+  type HorizonStatus,
+} from "@checkout/stellar";
 import { MockAnchorOffRamp, NoKycRequired, TestAnchorKyc, TestAnchorOffRamp } from "@checkout/offramp";
 import type { KycPort, OffRampPort, OffRampStateRepository } from "@checkout/core";
 import { env } from "../env";
@@ -35,6 +41,7 @@ export interface Container {
   webhooks: DrizzleWebhookRepository;
   kyc: KycPort;
   config: { network: string; horizonUrl: string; sellerWallet: string };
+  horizonStatus(): HorizonStatus;
   metricsToken: string;
   watcherLagSeconds(): number;
   circuitBreakerState(): number;
@@ -66,10 +73,18 @@ export async function createContainer(): Promise<Container> {
   await sellersRepo.ensureDefault(sellerWallet, env.defaultSellerName);
 
   const rail = new StellarRail(stellar);
+  // Polling watcher gets the retry / fallback / degraded-tracking wrapper
+  // (issue #10). The streaming path has its own reconnect handling.
+  const pollingWatcher = new HorizonWatcher({
+    primaryServer: stellar.horizonUrl,
+    fallbackServer: env.horizonUrlFallback,
+    degradedThreshold: env.horizonDegradedThreshold,
+    log: (m) => console.log(`[horizon] ${m}`),
+  });
   const watcher =
     env.watchMode === "stream"
       ? new StreamingHorizonWatcher(stellar.horizonUrl, { log: (m) => console.log(`[watcher:stream] ${m}`) })
-      : new HorizonWatcher(stellar.horizonUrl);
+      : pollingWatcher;
   const offramp = new CircuitBreakerOffRamp(createOffRamp(seller.keypair, offrampStateRepo));
   const kyc = createKyc(seller.keypair, db);
 
@@ -136,6 +151,7 @@ export async function createContainer(): Promise<Container> {
     webhooks: webhooksRepo,
     kyc,
     config: { network: stellar.network, horizonUrl: stellar.horizonUrl, sellerWallet },
+    horizonStatus: () => pollingWatcher.getStatus(),
     metricsToken,
     watcherLagSeconds: () => loop.getLagSeconds(),
     circuitBreakerState: () => offramp.getStateNumeric(),
