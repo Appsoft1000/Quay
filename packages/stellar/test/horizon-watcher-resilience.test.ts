@@ -3,13 +3,14 @@ import { describe, expect, it, vi } from "vitest";
 import { HorizonWatcher } from "../src/horizon-watcher";
 
 // Minimal fake satisfying just the chain HorizonWatcher actually calls:
-// server.payments().forAccount().order().limit()[.cursor()].call()
+// client.payments().forAccount().order().limit()[.cursor()].join().call()
 function fakeServer(call: () => Promise<{ records: unknown[] }>): Horizon.Server {
   const builder = {
     forAccount: () => builder,
     order: () => builder,
     limit: () => builder,
     cursor: () => builder,
+    join: () => builder,
     call,
   };
   return { payments: () => builder } as unknown as Horizon.Server;
