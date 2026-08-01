@@ -100,6 +100,9 @@ export const env = {
   // Required only when OFFRAMP=testanchor and DEFAULT_SELLER_WALLET is set (SEP-10
   // needs the seller's secret key to sign the auth challenge). Never persisted.
   defaultSellerSecret: process.env.DEFAULT_SELLER_SECRET || undefined,
+  // Bearer token required to read GET /metrics. Auto-generates an ephemeral one
+  // (printed once at boot) if unset — the endpoint is always gated.
+  metricsToken: process.env.METRICS_TOKEN || undefined,
   // Domain we identify as in SEP-10 challenges + stellar.toml. Should match where
   // this API is actually reachable in production.
   homeDomain: process.env.HOME_DOMAIN || `localhost:${Number(process.env.API_PORT ?? "8787")}`,

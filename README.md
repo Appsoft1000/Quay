@@ -194,6 +194,7 @@ pnpm sweep       # pre-entry ritual: uptime + synthetic checks against the live 
 | Status lifecycle, webhooks (HMAC-SHA256 signed) | **Real**. |
 | Persistence | **Real**, libSQL/SQLite for zero-config local dev (swap the `DATABASE_URL` for Turso/Postgres). Tables self-initialize on boot. |
 | Off-ramp (`@checkout/offramp`) | **Real, opt-in.** Set `OFFRAMP=testanchor` for a genuine SEP-10 → SEP-38 → SEP-6 flow against the public Stellar testnet anchor (`https://testanchor.stellar.org`). Defaults to `OFFRAMP=mock` (`MockAnchorOffRamp`, fake FX rate, no money moves) for offline dev — the dashboard labels the cash-out button "(simulated)" whenever mock mode is active. |
+| Metrics | **Real.** `GET /metrics` (Prometheus text format, `METRICS_TOKEN`-gated) — payment/webhook/anchor counters, watcher-lag and latency histograms, a circuit breaker around the off-ramp adapter. See [`docs/API.md`](docs/API.md#get-metrics) and [`docs/grafana-dashboard.json`](docs/grafana-dashboard.json). |
 | Embeddable widget (`/widget.js`) | **Real**, lightweight embeddable script rendering modal checkout. |
 | Auth | **Partial.** Wallet-native login is real: `GET/POST /auth` implements the server side of SEP-10 (challenge, signature + M-of-N threshold verification via Horizon, single-use, session JWT), and `/.well-known/stellar.toml` makes it discoverable. A seller row is created for a wallet on first login, but `/links` and `/webhooks` don't check the session yet — every request still operates on the single demo seller. See [`docs/API.md`](docs/API.md#get-authaccountg). |
 

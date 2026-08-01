@@ -1,5 +1,5 @@
-import { Keypair, StrKey } from "@stellar/stellar-sdk";
 import { randomBytes } from "node:crypto";
+import { Keypair, StrKey } from "@stellar/stellar-sdk";
 import { resolveStellarConfig, StellarRail, HorizonWatcher, StreamingHorizonWatcher } from "@checkout/stellar";
 import { MockAnchorOffRamp, NoKycRequired, TestAnchorKyc, TestAnchorOffRamp } from "@checkout/offramp";
 import type { KycPort, OffRampPort, OffRampStateRepository } from "@checkout/core";
@@ -26,6 +26,7 @@ import { ChallengeService } from "./challenge";
 import { horizonSignerFetcher } from "./horizon-signers";
 import { SessionIssuer } from "./session";
 import type { StellarTomlConfig } from "../routes/well-known";
+import { CircuitBreakerOffRamp } from "./circuit-breaker";
 
 export interface Container {
   service: LinkService;
@@ -34,6 +35,9 @@ export interface Container {
   webhooks: DrizzleWebhookRepository;
   kyc: KycPort;
   config: { network: string; horizonUrl: string; sellerWallet: string };
+  metricsToken: string;
+  watcherLagSeconds(): number;
+  circuitBreakerState(): number;
   auth: { challenge: ChallengeService; session: SessionIssuer; stellarToml: StellarTomlConfig };
   start(): void;
   stop(): void;
@@ -66,7 +70,7 @@ export async function createContainer(): Promise<Container> {
     env.watchMode === "stream"
       ? new StreamingHorizonWatcher(stellar.horizonUrl, { log: (m) => console.log(`[watcher:stream] ${m}`) })
       : new HorizonWatcher(stellar.horizonUrl);
-  const offramp = createOffRamp(seller.keypair, offrampStateRepo);
+  const offramp = new CircuitBreakerOffRamp(createOffRamp(seller.keypair, offrampStateRepo));
   const kyc = createKyc(seller.keypair, db);
 
   // Anchor health probe + circuit breaker (issue #19, 3.7). In mock mode the
@@ -105,6 +109,7 @@ export async function createContainer(): Promise<Container> {
     log: (m) => console.log(`[watcher] ${m}`),
   });
 
+  const metricsToken = resolveMetricsToken();
   const serverKeypair = resolveServerSigningKeypair();
   const challenge = new ChallengeService({
     serverKeypair,
@@ -131,6 +136,9 @@ export async function createContainer(): Promise<Container> {
     webhooks: webhooksRepo,
     kyc,
     config: { network: stellar.network, horizonUrl: stellar.horizonUrl, sellerWallet },
+    metricsToken,
+    watcherLagSeconds: () => loop.getLagSeconds(),
+    circuitBreakerState: () => offramp.getStateNumeric(),
     auth: { challenge, session, stellarToml },
     start() {
       loop.start();
@@ -287,4 +295,14 @@ function resolveJwtSecret(): string {
   }
   console.log(" No JWT_SECRET set — generated an ephemeral testnet session secret (won't survive a restart).");
   return randomBytes(32).toString("hex");
+}
+
+/** Resolves the bearer token that gates `GET /metrics`. Auto-generates an
+ *  ephemeral one (printed once at boot) if METRICS_TOKEN isn't set — the
+ *  endpoint is always gated, never open by default. */
+function resolveMetricsToken(): string {
+  if (env.metricsToken) return env.metricsToken;
+  const token = randomBytes(24).toString("hex");
+  console.log(` No METRICS_TOKEN set — generated an ephemeral one for /metrics: ${token}`);
+  return token;
 }
