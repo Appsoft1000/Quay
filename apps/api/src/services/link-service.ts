@@ -1,6 +1,8 @@
 import {
   CannotReceiveError,
   canTransition,
+  isQuoteExpired,
+  QuoteExpiredError,
   normalizeAmount,
   OffRampJobNotFoundError,
   type CashOutBody,
@@ -501,7 +503,10 @@ export class LinkService {
   }
 
   /** Seller-initiated cash-out: quote -> initiate -> move link to offramp_pending. */
-  async triggerCashOut(linkId: string, body: CashOutBody): Promise<OffRampJob> {
+  async triggerCashOut(
+    linkId: string,
+    body: CashOutBody,
+  ): Promise<OffRampJob & { quoteExpiresAt: number; quoteExpiresInSeconds: number }> {
     const link = await this.deps.links.findById(linkId);
     if (!link) throw new HttpError(404, "Link not found");
     if (link.status !== "paid") {
@@ -524,15 +529,31 @@ export class LinkService {
     }
 
     const sourceAmount = link.paidAmount ?? link.amount;
-    let quote: OffRampQuote;
-    let job: OffRampJob;
-    try {
-      quote = await this.deps.offramp.quote({
+
+    // Extracted so the expiry guard below can ask for a second, fresh quote
+    // without duplicating the request shape.
+    const fetchFreshQuote = () =>
+      this.deps.offramp.quote({
         linkId: link.id,
         sourceAsset: link.asset,
         sourceAmount,
         targetCurrency: body.targetCurrency,
       });
+
+    let quote: OffRampQuote;
+    let job: OffRampJob;
+    try {
+      quote = await fetchFreshQuote();
+
+      // Guard: reject quotes with unparsable or already-expired expiresAt.
+      if (isQuoteExpired(quote)) {
+        // One automatic re-quote in case of clock skew or a very short TTL.
+        quote = await fetchFreshQuote();
+        if (isQuoteExpired(quote)) {
+          throw new QuoteExpiredError(quote.quoteId);
+        }
+      }
+
       job = await this.deps.offramp.initiate({
         linkId: link.id,
         quoteId: quote.quoteId,
@@ -540,6 +561,9 @@ export class LinkService {
       });
     } catch (err) {
       if (err instanceof HttpError) throw err;
+      if (err instanceof QuoteExpiredError) {
+        throw new HttpError(409, `quote_expired: ${err.message}`);
+      }
       const message = err instanceof Error ? err.message : String(err);
       throw new HttpError(502, `Off-ramp error: ${message}`);
     }
@@ -565,7 +589,11 @@ export class LinkService {
     await this.deps.links.save(link);
     metrics.linkStatusTransitionsTotal.inc({ to: "offramp_pending" });
     this.cashOutStartedAt.set(link.id, Date.now());
-    return job;
+
+    const now = Date.now();
+    const quoteExpiresInSeconds = Math.max(0, Math.floor((quote.expiresAt - now) / 1000));
+
+    return { ...job, quoteExpiresAt: quote.expiresAt, quoteExpiresInSeconds };
   }
 
   /** Advance any pending cash-outs by polling the off-ramp adapter. */
