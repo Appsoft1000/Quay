@@ -1,11 +1,11 @@
-import { Hono } from "hono";
+import { Hono, type MiddlewareHandler } from "hono";
 import { createLinkSchema, cashOutSchema } from "@checkout/core";
 import type { Container } from "../services/container";
 import { HttpError } from "../services/link-service";
 import { requireSeller, type AuthedVariables } from "../middleware/auth";
 import { idempotency } from "../middleware/idempotency";
 
-export function linkRoutes(c: Container): Hono<{ Variables: AuthedVariables }> {
+export function linkRoutes(c: Container, strictRateLimit: MiddlewareHandler): Hono<{ Variables: AuthedVariables }> {
   const app = new Hono<{ Variables: AuthedVariables }>();
   // Applied per-route, NOT via app.use("*", ...). `GET /links/:id` is the
   // buyer-facing checkout fetch: the buyer paying an invoice is not the seller
@@ -17,8 +17,10 @@ export function linkRoutes(c: Container): Hono<{ Variables: AuthedVariables }> {
   // authenticated seller (issue #26).
   const idempotent = idempotency(c.db);
 
+  // strictRateLimit runs BEFORE auth so unauthenticated floods are throttled
+  // too — a limiter that only applies to valid sessions protects nothing.
   // Create a payment link.
-  app.post("/", auth, idempotent, async (ctx) => {
+  app.post("/", strictRateLimit, auth, idempotent, async (ctx) => {
     const parsed = createLinkSchema.safeParse(await safeJson(ctx));
     if (!parsed.success) return ctx.json({ error: "invalid_body", issues: parsed.error.issues }, 400);
     try {
@@ -45,7 +47,7 @@ export function linkRoutes(c: Container): Hono<{ Variables: AuthedVariables }> {
   });
 
   // Seller-initiated cash-out to local currency.
-  app.post("/:id/cash-out", auth, idempotent, async (ctx) => {
+  app.post("/:id/cash-out", strictRateLimit, auth, idempotent, async (ctx) => {
     const parsed = cashOutSchema.safeParse(await safeJson(ctx));
     if (!parsed.success) return ctx.json({ error: "invalid_body", issues: parsed.error.issues }, 400);
     try {

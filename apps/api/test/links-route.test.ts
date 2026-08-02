@@ -83,14 +83,14 @@ describe("GET /links/:id — public checkout read", () => {
   // is the bearer capability here.
   it("returns the link (200) to an unauthenticated buyer", async () => {
     const container = fakeContainer();
-    const app = linkRoutes(container);
+    const app = linkRoutes(container, async (_c, next) => next());
     const res = await app.request(`/${ownedLink.id}`);
     expect(res.status).toBe(200);
   });
 
   it("returns the link (200) when the owning seller is authenticated", async () => {
     const container = fakeContainer();
-    const app = linkRoutes(container);
+    const app = linkRoutes(container, async (_c, next) => next());
     const token = await tokenFor(container.auth.session, owner.id);
 
     const res = await app.request(`/${ownedLink.id}`, { headers: { authorization: `Bearer ${token}` } });
@@ -99,7 +99,7 @@ describe("GET /links/:id — public checkout read", () => {
 
   it("still serves a link to a different authenticated seller — reads are public", async () => {
     const container = fakeContainer();
-    const app = linkRoutes(container);
+    const app = linkRoutes(container, async (_c, next) => next());
     const token = await tokenFor(container.auth.session, other.id);
 
     const res = await app.request(`/${ownedLink.id}`, { headers: { authorization: `Bearer ${token}` } });
@@ -108,7 +108,7 @@ describe("GET /links/:id — public checkout read", () => {
 
   it("returns 404 for a nonexistent link", async () => {
     const container = fakeContainer();
-    const app = linkRoutes(container);
+    const app = linkRoutes(container, async (_c, next) => next());
     const res = await app.request(`/lnk_does_not_exist`);
     expect(res.status).toBe(404);
   });

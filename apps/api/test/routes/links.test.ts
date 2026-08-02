@@ -26,7 +26,7 @@ beforeAll(async () => {
   container = await createTestContainer();
   app = new Hono();
   app.use("*", rateLimit({ windowMs: 60_000, max: 0 }));
-  app.route("/links", linkRoutes(container));
+  app.route("/links", linkRoutes(container, async (_c, next) => next()));
   const seller = await container.sellers.getDefault();
   authToken = await container.tokenFor(seller.id, seller.wallet);
 });
@@ -278,7 +278,7 @@ describe("rate-limit headers", () => {
   it("includes x-ratelimit headers when rate limiter is active", async () => {
     const limitedApp = new Hono();
     limitedApp.use("*", rateLimit({ windowMs: 60_000, max: 5 }));
-    limitedApp.route("/links", linkRoutes(container));
+    limitedApp.route("/links", linkRoutes(container, async (_c, next) => next()));
 
     const res = await limitedApp.request("/links", { headers: { authorization: `Bearer ${authToken}` } });
     expect(res.status).toBe(200);
@@ -290,7 +290,7 @@ describe("rate-limit headers", () => {
   it("returns 429 when rate limit exceeded", async () => {
     const limitedApp = new Hono();
     limitedApp.use("*", rateLimit({ windowMs: 60_000, max: 1 }));
-    limitedApp.route("/links", linkRoutes(container));
+    limitedApp.route("/links", linkRoutes(container, async (_c, next) => next()));
 
     const res1 = await limitedApp.request("/links", { headers: { authorization: `Bearer ${authToken}` } });
     expect(res1.status).toBe(200);

@@ -9,7 +9,8 @@ import { metricsRoutes } from "./routes/metrics";
 import { authRoutes } from "./routes/auth";
 import { wellKnownRoutes } from "./routes/well-known";
 import { kycRoutes } from "./routes/kyc";
-import { rateLimit } from "./middleware/rate-limit";
+import { rateLimit, MemoryStore } from "./middleware/rate-limit";
+import { RedisStore } from "./middleware/redis-store";
 
 const SHUTDOWN_TIMEOUT_MS = env.shutdownTimeoutMs;
 
@@ -17,6 +18,7 @@ async function main(): Promise<void> {
   const container = await createContainer();
 
   const app = new Hono();
+  const rateLimitStore = env.redisUrl ? new RedisStore(env.redisUrl) : new MemoryStore();
   app.use(
     "*",
     cors({
@@ -28,7 +30,21 @@ async function main(): Promise<void> {
       credentials: true,
     }),
   );
-  app.use("*", rateLimit({ windowMs: env.rateLimitWindowMs, max: env.rateLimitMax }));
+  app.use(
+    "*",
+    rateLimit({
+      windowMs: env.rateLimitWindowMs,
+      max: env.rateLimitMax,
+      store: rateLimitStore,
+      trustProxyHops: env.trustProxyHops,
+    }),
+  );
+  const strictRateLimit = rateLimit({
+    windowMs: env.rateLimitStrictWindowMs,
+    max: env.rateLimitStrictMax,
+    store: rateLimitStore,
+    trustProxyHops: env.trustProxyHops,
+  });
 
   app.get("/health", async (ctx) => {
     const usdcTrustline = await container.service
@@ -65,7 +81,7 @@ async function main(): Promise<void> {
     });
   });
 
-  app.route("/links", linkRoutes(container));
+  app.route("/links", linkRoutes(container, strictRateLimit));
   app.route("/webhooks", webhookRoutes(container));
   app.route("/metrics", metricsRoutes(container));
   app.route(

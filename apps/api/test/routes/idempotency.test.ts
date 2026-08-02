@@ -15,7 +15,7 @@ let token = "";
 beforeAll(async () => {
   container = await createTestContainer();
   app = new Hono();
-  app.route("/links", linkRoutes(container));
+  app.route("/links", linkRoutes(container, async (_c, next) => next()));
   const seller = await container.sellers.getDefault();
   token = await container.tokenFor(seller.id, seller.wallet);
 });
