@@ -7,6 +7,37 @@ export interface LinkWithRequest {
   request: PaymentRequest;
 }
 
+/** A webhook delivery record for timeline display. */
+export interface WebhookDelivery {
+  webhookId: string;
+  linkId: string;
+  event: string;
+  statusCode: number | null;
+  ok: boolean;
+  error: string | null;
+  createdAt: number;
+}
+
+export interface LinkDetail {
+  link: PaymentLink;
+  request: PaymentRequest;
+  deliveries: WebhookDelivery[];
+}
+
+/** Fields exposed on the public receipt — never includes seller PII. */
+export interface PublicReceipt {
+  reference: string;
+  title: string;
+  amount: string;
+  asset: { code: string; issuer: string | null };
+  status: string;
+  txHash: string | null;
+  payer: string | null;
+  paidAmount: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface KycView {
   status: KycStatus;
   requiredFields: KycFieldSpec[];
@@ -190,6 +221,10 @@ export const api = {
 
   getLink: (id: string) => http<LinkWithRequest>(`/links/${id}`),
 
+  getDetail: (id: string) => http<LinkDetail>(`/links/${id}/detail`),
+
+  getReceipt: (reference: string) => http<PublicReceipt>(`/r/${reference}`),
+
   health: () => http<HealthResponse>("/health"),
 
   cashOut: (
@@ -203,6 +238,15 @@ export const api = {
       { method: "POST", body: JSON.stringify({ targetCurrency, payoutFields }), idempotencyKey },
     ),
 
+  exportCsv: async (from?: string, to?: string): Promise<Blob> => {
+    const params = new URLSearchParams();
+    if (from) params.set("from", from);
+    if (to) params.set("to", to);
+    const qs = params.toString();
+    const res = await fetch(`${apiBase()}/links/export/csv${qs ? `?${qs}` : ""}`, { cache: "no-store" });
+    if (!res.ok) throw new Error(`Export failed: ${res.status}`);
+    return res.blob();
+  },
   // Wallet-native login (SEP-10): getAuthChallenge() -> sign with the wallet ->
   // submitAuthChallenge() -> setSessionToken(token) on success.
   getAuthChallenge: (account: string) => http<AuthChallenge>(`/auth?account=${encodeURIComponent(account)}`),

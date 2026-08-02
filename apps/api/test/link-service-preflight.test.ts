@@ -48,6 +48,7 @@ function fakeWebhooks(): WebhookRepository {
   return {
     create: vi.fn(async (input) => ({ id: "whk_1", ...input, createdAt: Date.now() })),
     listBySeller: vi.fn(async () => []),
+    listDeliveriesByLinkId: vi.fn(async () => []),
     recordDelivery: vi.fn(async () => {}),
   };
 }

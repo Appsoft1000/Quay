@@ -134,6 +134,10 @@ class FakeWebhookRepo implements WebhookRepository {
     this.stored.push(w);
     return w;
   }
+  async listDeliveriesByLinkId(linkId: string): Promise<WebhookDelivery[]> {
+    return this.deliveries.filter((d) => d.linkId === linkId);
+  }
+
   async listBySeller(sellerId: string): Promise<Webhook[]> {
     return this.stored.filter((h) => h.sellerId === sellerId);
   }
