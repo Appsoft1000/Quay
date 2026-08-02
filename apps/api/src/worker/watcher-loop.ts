@@ -174,6 +174,16 @@ export class WatcherLoop {
       this.metrics.perAccountLag.set(account, lag);
     }
     this.lastTickCompletedAt = now;
+
+    // Expiry sweep runs AFTER payment matching, so a buyer who submitted within
+    // TTL but whose on-chain confirmation lands after the deadline still settles
+    // as `paid` rather than being rejected against an already-expired link.
+    try {
+      const moved = await this.deps.service.sweepExpired(Date.now());
+      if (moved > 0) this.deps.log?.(`expiry sweep moved ${moved} link(s) to expired`);
+    } catch (err) {
+      this.deps.log?.(`expiry sweep error: ${stringifyErr(err)}`);
+    }
   }
 
   /**
@@ -349,6 +359,28 @@ export class WatcherLoop {
           `payment ${short(payment.txHash)} -> ${outcome.kind}` +
             (becamePaid ? ` (link ${linkId} PAID)` : ""),
         );
+      } else if (
+        outcome.kind === "unknown_reference" &&
+        payment.memo &&
+        payment.memoType !== "none"
+      ) {
+        // Memo matched nothing in the OPEN set. Before we give up, check
+        // whether the memo belongs to a link that *used to* be open but has
+        // since been expired or cancelled by the seller. If so, the buyer
+        // paid a dead link: do NOT resurrect it, fire payment.unmatched so
+        // the seller can refund the buyer out-of-band.
+        const terminal = await this.deps.links.findByReference(payment.memo);
+        if (
+          terminal &&
+          terminal.destination === account &&
+          (terminal.status === "expired" || terminal.status === "cancelled")
+        ) {
+          await this.deps.service.recordUnmatchedPayment(payment, terminal);
+          this.deps.log?.(
+            `payment ${short(payment.txHash)} -> unmatched against ` +
+              `${terminal.status} link ${terminal.id}`,
+          );
+        }
       }
 
       await this.deps.state.markProcessed(payment.txHash, linkId);

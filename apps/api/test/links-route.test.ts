@@ -48,6 +48,7 @@ function fakeContainer(): Container {
       getLink: async (id: string) => (id === ownedLink.id ? { link: ownedLink, request: {} as any } : null),
       createLink: async () => ({ link: ownedLink, request: {} as any }),
       listLinks: async () => [ownedLink],
+      cancelLink: async () => ({ ...ownedLink, status: "cancelled" as const }),
     } as unknown as Container["service"],
     links: {} as Container["links"],
     sellers: sellers as unknown as Container["sellers"],
@@ -111,5 +112,38 @@ describe("GET /links/:id — public checkout read", () => {
     const app = linkRoutes(container, async (_c, next) => next());
     const res = await app.request(`/lnk_does_not_exist`);
     expect(res.status).toBe(404);
+  });
+});
+
+describe("POST /links/:id/cancel — ownership", () => {
+  it("rejects with 401 when no token is provided", async () => {
+    const app = linkRoutes(fakeContainer(), async (_c, next) => next());
+    const res = await app.request(`/${ownedLink.id}/cancel`, { method: "POST" });
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects with 403 when a different seller tries to cancel the link", async () => {
+    const container = fakeContainer();
+    const app = linkRoutes(container, async (_c, next) => next());
+    const token = await tokenFor(container.auth.session, other.id);
+
+    const res = await app.request(`/${ownedLink.id}/cancel`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as Record<string, unknown>).error).toBe("forbidden");
+  });
+
+  it("cancels the link for its owner", async () => {
+    const container = fakeContainer();
+    const app = linkRoutes(container, async (_c, next) => next());
+    const token = await tokenFor(container.auth.session, owner.id);
+
+    const res = await app.request(`/${ownedLink.id}/cancel`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(200);
   });
 });

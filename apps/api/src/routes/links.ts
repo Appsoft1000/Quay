@@ -64,6 +64,28 @@ export function linkRoutes(c: Container, strictRateLimit: MiddlewareHandler): Ho
     }
   });
 
+  // Seller voids a link they created by mistake. Idempotent: cancelling an
+  // already-`cancelled` link is a successful no-op. Any state from which
+  // `cancelled` is not reachable is rejected with 409 (the on-chain payment
+  // must NOT be reversed client-side; the seller refunds out of band via the
+  // off-ramp / from their own wallet). No request body.
+  app.post("/:id/cancel", auth, async (ctx) => {
+    try {
+      // Ownership check mirrors cash-out: a link id alone must not let one
+      // seller void another seller's link.
+      const existing = await c.service.getLink(ctx.req.param("id"));
+      if (!existing) return ctx.json({ error: "not_found" }, 404);
+      if (existing.link.sellerId !== ctx.get("seller").id) {
+        return ctx.json({ error: "forbidden", message: "this link belongs to a different seller" }, 403);
+      }
+      const link = await c.service.cancelLink(ctx.req.param("id"));
+      return ctx.json({ link });
+    } catch (err) {
+      if (err instanceof HttpError) return ctx.json({ error: err.message }, err.status as 403 | 404 | 409);
+      throw err;
+    }
+  });
+
   return app;
 }
 
