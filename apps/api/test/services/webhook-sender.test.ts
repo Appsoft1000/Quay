@@ -1,3 +1,4 @@
+import type { Webhook } from "@checkout/core";
 import { describe, it, expect, beforeAll, afterAll, vi, beforeEach, afterEach } from "vitest";
 import { createHmac, randomBytes } from "node:crypto";
 import { WebhookSender } from "../../src/services/webhook-sender";
@@ -17,7 +18,10 @@ describe("WebhookSender", () => {
   let client: Client;
   let repo: DrizzleWebhookRepository;
   let sender: WebhookSender;
-  let hook: { id: string; sellerId: string; url: string; secret: string; createdAt: number };
+  let hook: Webhook;
+  // The plaintext secret is only knowable at creation now — the stored row
+  // holds an encrypted copy (issue #24), so keep it for the HMAC assertions.
+  let hookSecret: string;
 
   beforeAll(async () => {
     const repos = await withTestDb();
@@ -37,10 +41,11 @@ describe("WebhookSender", () => {
       timeoutMs: 2000,
     });
 
+    hookSecret = randomBytes(24).toString("hex");
     hook = await repo.create({
       sellerId: "sel_test",
       url: "http://localhost:1",
-      secret: randomBytes(24).toString("hex"),
+      secret: hookSecret,
     });
   });
 
@@ -68,7 +73,7 @@ describe("WebhookSender", () => {
       const sigValue = signatureHeader.replace("sha256=", "");
       const body = call[1]!.body as string;
 
-      const expectedSig = createHmac("sha256", hook.secret).update(body).digest("hex");
+      const expectedSig = createHmac("sha256", hookSecret).update(body).digest("hex");
       expect(sigValue).toBe(expectedSig);
 
       expect(headers["x-checkout-event"]).toBe("link.paid");
@@ -93,7 +98,7 @@ describe("WebhookSender", () => {
 
       const sigHeader = (call[1]!.headers as Record<string, string>)["x-checkout-signature"]!;
       const tamperedBody = JSON.stringify({ ...body, sentAt: "2020-01-01T00:00:00.000Z" });
-      const tamperedSig = createHmac("sha256", hook.secret).update(tamperedBody).digest("hex");
+      const tamperedSig = createHmac("sha256", hookSecret).update(tamperedBody).digest("hex");
       expect(tamperedSig).not.toBe(sigHeader.replace("sha256=", ""));
 
       fetchSpy.mockRestore();

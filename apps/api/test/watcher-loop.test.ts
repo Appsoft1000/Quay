@@ -115,6 +115,18 @@ function makeNoopWebhookRepo(): WebhookRepository {
     async listBySeller() {
       return [];
     },
+    async getById(): Promise<null> {
+      return null;
+    },
+    async rotateSecret(): Promise<null> {
+      return null;
+    },
+    async softDelete(): Promise<boolean> {
+      return false;
+    },
+    async listDeliveries(): Promise<{ deliveries: never[]; nextCursor: null }> {
+      return { deliveries: [], nextCursor: null };
+    },
     async listDeliveriesByLinkId(): Promise<never[]> {
     return [];
   },

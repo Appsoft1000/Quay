@@ -14,6 +14,7 @@ import {
 } from "@checkout/core";
 import type { StellarConfig } from "@checkout/stellar";
 import { LinkService } from "../src/services/link-service";
+import { encryptSecret } from "../src/services/secret-crypto";
 import { AlwaysAcceptedKyc, FakeOffRampStateRepository } from "./fakes";
 import { Hono } from "hono";
 
@@ -134,11 +135,28 @@ class FakeWebhookRepo implements WebhookRepository {
       id: "whk_1",
       sellerId: input.sellerId,
       url: input.url,
-      secret: input.secret,
+      secretEncrypted: encryptSecret(input.secret),
+      secretLast4: input.secret.slice(-4),
+      previousSecretEncrypted: null,
+      previousSecretLast4: null,
+      previousSecretExpiresAt: null,
+      deletedAt: null,
       createdAt: Date.now(),
     };
     this.stored.push(w);
     return w;
+  }
+  async getById(): Promise<null> {
+    return null;
+  }
+  async rotateSecret(): Promise<null> {
+    return null;
+  }
+  async softDelete(): Promise<boolean> {
+    return false;
+  }
+  async listDeliveries(): Promise<{ deliveries: never[]; nextCursor: null }> {
+    return { deliveries: [], nextCursor: null };
   }
   async listDeliveriesByLinkId(linkId: string): Promise<WebhookDelivery[]> {
     return this.deliveries.filter((d) => d.linkId === linkId);
