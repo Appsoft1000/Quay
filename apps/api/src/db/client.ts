@@ -50,6 +50,9 @@ const BOOTSTRAP_SQL = [
   `CREATE TABLE IF NOT EXISTS processed_tx (
      tx_hash TEXT PRIMARY KEY, link_id TEXT, created_at INTEGER NOT NULL
    )`,
+  `CREATE TABLE IF NOT EXISTS revoked_tokens (
+     jti TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, revoked_at INTEGER NOT NULL
+   )`,
 ];
 
 export function createDb(databaseUrl: string, authToken?: string): { db: DB; client: Client } {

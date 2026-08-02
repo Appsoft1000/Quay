@@ -121,6 +121,10 @@ export const env = {
   // an ephemeral one on testnet if unset (sessions won't survive a restart);
   // required on public network.
   jwtSecret: process.env.JWT_SECRET || undefined,
+  // Whether the session cookie gets the `Secure` attribute (only sent over
+  // HTTPS). Defaults on; set COOKIE_SECURE=false for plain-http local dev,
+  // where a Secure cookie would otherwise silently never be sent at all.
+  cookieSecure: (process.env.COOKIE_SECURE ?? "true") !== "false",
   // Watcher concurrency and fairness settings
   watcherConcurrency: Number(process.env.WATCHER_CONCURRENCY ?? "10"),
   watcherMaxAccountsPerTick: Number(process.env.WATCHER_MAX_ACCOUNTS_PER_TICK ?? "50"),

@@ -17,7 +17,17 @@ async function main(): Promise<void> {
   const container = await createContainer();
 
   const app = new Hono();
-  app.use("*", cors({ origin: env.corsOrigins, allowMethods: ["GET", "POST", "PUT", "OPTIONS"] }));
+  app.use(
+    "*",
+    cors({
+      origin: env.corsOrigins,
+      allowMethods: ["GET", "POST", "PUT", "OPTIONS"],
+      // The session cookie is sent cross-origin (API and web app are separate
+      // hosts) — credentials: true plus an explicit (non-"*") origin list is
+      // required for the browser to actually attach/accept it.
+      credentials: true,
+    }),
+  );
   app.use("*", rateLimit({ windowMs: env.rateLimitWindowMs, max: env.rateLimitMax }));
 
   app.get("/health", async (ctx) => {
@@ -60,7 +70,13 @@ async function main(): Promise<void> {
   app.route("/metrics", metricsRoutes(container));
   app.route(
     "/auth",
-    authRoutes({ challenge: container.auth.challenge, session: container.auth.session, sellers: container.sellers }),
+    authRoutes({
+      challenge: container.auth.challenge,
+      session: container.auth.session,
+      sellers: container.sellers,
+      revocations: container.auth.revocations,
+      secureCookie: container.auth.secureCookie,
+    }),
   );
   app.route("/.well-known", wellKnownRoutes(container.auth.stellarToml));
   app.route("/seller/kyc", kycRoutes(container));

@@ -25,6 +25,21 @@ export function apiBase(): string {
   return BROWSER_BASE;
 }
 
+// Session token lives ONLY in memory for the lifetime of the page — never
+// localStorage/sessionStorage (a persistent, JS-readable store is exactly what
+// an XSS payload would go looking for). It's lost on a hard refresh; the
+// httpOnly `session` cookie the API also sets is what survives that (sent
+// automatically via `credentials: "include"`, never readable by this code).
+let sessionToken: string | null = null;
+
+export function setSessionToken(token: string | null): void {
+  sessionToken = token;
+}
+
+export function getSessionToken(): string | null {
+  return sessionToken;
+}
+
 // ── Typed error envelope ────────────────────────────────────────────────────
 
 /** Machine-readable error codes the API can return in its `error` field. */
@@ -85,18 +100,28 @@ export function describeError(err: CheckoutError): string {
  * - Network failure → throw `CheckoutError` with code `"unreachable"`
  */
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    ...((init?.headers as Record<string, string> | undefined) ?? {}),
+  };
+  if (sessionToken) headers.authorization = `Bearer ${sessionToken}`;
+
   let res: Response;
   try {
     res = await fetch(`${apiBase()}${path}`, {
       ...init,
-      headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
+      headers,
       cache: "no-store",
+      credentials: "include", // send the httpOnly session cookie cross-origin
     });
   } catch {
     throw new CheckoutError("unreachable", 0, "Network request failed");
   }
 
   if (!res.ok) {
+    // The session is no longer good for anything — drop it so the UI can
+    // re-authenticate rather than retrying with a dead token.
+    if (res.status === 401) setSessionToken(null);
     const raw = await res.text().catch(() => "");
     const body = parseJsonObject(raw) ?? {};
     const { error, missingFields: rawMissing, message, ...details } = body;
@@ -140,6 +165,11 @@ export interface CreateLinkInput {
   expiresInMinutes?: number;
 }
 
+export interface AuthChallenge {
+  transaction: string;
+  network_passphrase: string;
+}
+
 export type UsdcTrustlineStatus =
   | { ok: true }
   | { ok: false; reason: string; message: string; trustlineUri?: string };
@@ -171,6 +201,17 @@ export const api = {
       { method: "POST", body: JSON.stringify({ targetCurrency, payoutFields }) },
     ),
 
+  // Wallet-native login (SEP-10): getAuthChallenge() -> sign with the wallet ->
+  // submitAuthChallenge() -> setSessionToken(token) on success.
+  getAuthChallenge: (account: string) => http<AuthChallenge>(`/auth?account=${encodeURIComponent(account)}`),
+
+  submitAuthChallenge: (transaction: string) =>
+    http<{ token: string; expiresAt: number }>("/auth", { method: "POST", body: JSON.stringify({ transaction }) }).then((res) => {
+      setSessionToken(res.token);
+      return res;
+    }),
+
+  logout: () => http<{ ok: true }>("/auth/logout", { method: "POST" }).finally(() => setSessionToken(null)),
   getKyc: () => http<KycView>("/seller/kyc"),
 
   submitKyc: (fields: Record<string, string>) =>

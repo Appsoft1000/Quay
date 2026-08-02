@@ -17,6 +17,7 @@ import {
   DrizzleSellerRepository,
   DrizzleWebhookRepository,
   DrizzleWatcherStateRepository,
+  DrizzleTokenRevocationRepository,
   DrizzleOffRampStateRepository,
   DrizzleKycRepository,
 } from "../repos/index";
@@ -45,7 +46,13 @@ export interface Container {
   metricsToken: string;
   watcherLagSeconds(): number;
   circuitBreakerState(): number;
-  auth: { challenge: ChallengeService; session: SessionIssuer; stellarToml: StellarTomlConfig };
+  auth: {
+    challenge: ChallengeService;
+    session: SessionIssuer;
+    stellarToml: StellarTomlConfig;
+    revocations: DrizzleTokenRevocationRepository;
+    secureCookie: boolean;
+  };
   start(): void;
   stop(): void;
   getWatcherCircuitBreakerStatus(): AccountCircuitBreakerStatus[];
@@ -66,6 +73,7 @@ export async function createContainer(): Promise<Container> {
   const sellersRepo = new DrizzleSellerRepository(db);
   const webhooksRepo = new DrizzleWebhookRepository(db);
   const stateRepo = new DrizzleWatcherStateRepository(db);
+  const revocationsRepo = new DrizzleTokenRevocationRepository(db);
   const offrampStateRepo = new DrizzleOffRampStateRepository(db);
 
   const seller = resolveSellerKeypairOrWallet();
@@ -142,6 +150,7 @@ export async function createContainer(): Promise<Container> {
   };
 
   let stopPoller: (() => void) | null = null;
+  let stopRevocationSweep: (() => void) | null = null;
   let stopProbe: (() => void) | null = null;
 
   return {
@@ -155,15 +164,21 @@ export async function createContainer(): Promise<Container> {
     metricsToken,
     watcherLagSeconds: () => loop.getLagSeconds(),
     circuitBreakerState: () => offramp.getStateNumeric(),
-    auth: { challenge, session, stellarToml },
+    auth: { challenge, session, stellarToml, revocations: revocationsRepo, secureCookie: env.cookieSecure },
     start() {
       loop.start();
       stopPoller = startCashOutPoller(service, Math.max(3000, env.pollMs));
       stopProbe = startAnchorProbeTimer(anchorHealth, 60_000);
+      const sweepTimer = setInterval(
+        () => void revocationsRepo.sweepExpired(Math.floor(Date.now() / 1000)),
+        60 * 60 * 1000, // hourly — revocation rows are cheap and self-limiting (max 24h lifetime) anyway
+      );
+      stopRevocationSweep = () => clearInterval(sweepTimer);
     },
     async stop() {
       await loop.stop();
       stopPoller?.();
+      stopRevocationSweep?.();
       if (watcher instanceof StreamingHorizonWatcher) watcher.stop();
       stopProbe?.();
       stopPoller = null;
