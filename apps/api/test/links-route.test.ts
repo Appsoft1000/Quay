@@ -55,6 +55,7 @@ function fakeContainer(): Container {
     config: { network: "testnet", horizonUrl: "https://horizon-testnet.stellar.org", sellerWallet: owner.wallet },
     auth: { session, sellers, revocations } as unknown as Container["auth"],
     kyc: {} as Container["kyc"],
+    db: {} as Container["db"],
     horizonStatus: () => ({ degraded: false, usingFallback: false, consecutiveFailures: 0 }),
     metricsToken: "test-metrics-token",
     watcherLagSeconds: () => 0,

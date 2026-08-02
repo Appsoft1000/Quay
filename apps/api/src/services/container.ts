@@ -40,6 +40,7 @@ export interface Container {
   links: DrizzleLinkRepository;
   sellers: DrizzleSellerRepository;
   webhooks: DrizzleWebhookRepository;
+  db: DB;
   kyc: KycPort;
   config: { network: string; horizonUrl: string; sellerWallet: string };
   horizonStatus(): HorizonStatus;
@@ -158,6 +159,7 @@ export async function createContainer(): Promise<Container> {
     links: linksRepo,
     sellers: sellersRepo,
     webhooks: webhooksRepo,
+    db,
     kyc,
     config: { network: stellar.network, horizonUrl: stellar.horizonUrl, sellerWallet },
     horizonStatus: () => pollingWatcher.getStatus(),

@@ -99,12 +99,13 @@ export function describeError(err: CheckoutError): string {
  * - 4xx/5xx → extract `{ error: string }` envelope and throw `CheckoutError`
  * - Network failure → throw `CheckoutError` with code `"unreachable"`
  */
-async function http<T>(path: string, init?: RequestInit): Promise<T> {
+async function http<T>(path: string, init?: RequestInit & { idempotencyKey?: string }): Promise<T> {
   const headers: Record<string, string> = {
     "content-type": "application/json",
     ...((init?.headers as Record<string, string> | undefined) ?? {}),
   };
   if (sessionToken) headers.authorization = `Bearer ${sessionToken}`;
+  if (init?.idempotencyKey) headers["idempotency-key"] = init.idempotencyKey;
 
   let res: Response;
   try {
@@ -182,8 +183,8 @@ export interface HealthResponse {
 }
 
 export const api = {
-  createLink: (input: CreateLinkInput) =>
-    http<LinkWithRequest>("/links", { method: "POST", body: JSON.stringify(input) }),
+  createLink: (input: CreateLinkInput, idempotencyKey?: string) =>
+    http<LinkWithRequest>("/links", { method: "POST", body: JSON.stringify(input), idempotencyKey }),
 
   listLinks: () => http<{ links: PaymentLink[] }>("/links"),
 
@@ -195,10 +196,11 @@ export const api = {
     id: string,
     targetCurrency: string,
     payoutFields: Record<string, string> = {},
+    idempotencyKey?: string,
   ) =>
     http<{ job: { jobId: string; status: string; targetAmount: string; targetCurrency: string } }>(
       `/links/${id}/cash-out`,
-      { method: "POST", body: JSON.stringify({ targetCurrency, payoutFields }) },
+      { method: "POST", body: JSON.stringify({ targetCurrency, payoutFields }), idempotencyKey },
     ),
 
   // Wallet-native login (SEP-10): getAuthChallenge() -> sign with the wallet ->

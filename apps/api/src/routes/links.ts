@@ -3,6 +3,7 @@ import { createLinkSchema, cashOutSchema } from "@checkout/core";
 import type { Container } from "../services/container";
 import { HttpError } from "../services/link-service";
 import { requireSeller, type AuthedVariables } from "../middleware/auth";
+import { idempotency } from "../middleware/idempotency";
 
 export function linkRoutes(c: Container): Hono<{ Variables: AuthedVariables }> {
   const app = new Hono<{ Variables: AuthedVariables }>();
@@ -12,8 +13,12 @@ export function linkRoutes(c: Container): Hono<{ Variables: AuthedVariables }> {
   // server component with no cookie at all. Gating it would 401 every checkout.
   const auth = requireSeller({ session: c.auth.session, sellers: c.sellers, revocations: c.auth.revocations });
 
+  // Idempotency is mounted after `auth` so it can scope stored responses to the
+  // authenticated seller (issue #26).
+  const idempotent = idempotency(c.db);
+
   // Create a payment link.
-  app.post("/", auth, async (ctx) => {
+  app.post("/", auth, idempotent, async (ctx) => {
     const parsed = createLinkSchema.safeParse(await safeJson(ctx));
     if (!parsed.success) return ctx.json({ error: "invalid_body", issues: parsed.error.issues }, 400);
     try {
@@ -40,7 +45,7 @@ export function linkRoutes(c: Container): Hono<{ Variables: AuthedVariables }> {
   });
 
   // Seller-initiated cash-out to local currency.
-  app.post("/:id/cash-out", auth, async (ctx) => {
+  app.post("/:id/cash-out", auth, idempotent, async (ctx) => {
     const parsed = cashOutSchema.safeParse(await safeJson(ctx));
     if (!parsed.success) return ctx.json({ error: "invalid_body", issues: parsed.error.issues }, 400);
     try {
