@@ -135,6 +135,26 @@ export interface OffRampPort {
   /** Throws {@link OffRampJobNotFoundError} when `jobId` has no known state — a
    *  crash/redeploy wiped an in-memory-only implementation, or the id is bogus. */
   status(jobId: string): Promise<OffRampJob>;
+  /**
+   * Indicative prices for all available buy currencies — SEP-38 GET /prices.
+   * Unauthenticated, no quote consumed. Used by the dashboard to show rates
+   * before the seller commits to a firm quote (issue 3.5).
+   * Optional: adapters that cannot provide indicative pricing may omit this.
+   */
+  indicativePrices?(input: {
+    sourceAsset: AssetRef;
+    sourceAmount: string;
+  }): Promise<IndicativePrice[]>;
+}
+
+/** One indicative price entry from SEP-38 GET /prices (issue 3.5). */
+export interface IndicativePrice {
+  /** ISO-4217 buy currency, e.g. "NGN". */
+  targetCurrency: string;
+  /** Indicative exchange rate: 1 sourceAsset unit = `price` targetCurrency units. */
+  price: string;
+  /** Delivery methods advertised by the anchor, e.g. ["WIRE"]. */
+  deliveryMethods: string[];
 }
 
 /** Typed miss for {@link OffRampPort.status}, so callers (the cash-out poller)

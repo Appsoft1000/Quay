@@ -190,6 +190,19 @@ function parseJsonObject(raw: string): Record<string, unknown> | null {
   }
 }
 
+/** One anchor-advertised indicative price (issue 3.5). Never a firm quote. */
+export interface IndicativePrice {
+  targetCurrency: string;
+  price: string;
+  deliveryMethods: string[];
+}
+
+export interface OfframpPreview {
+  indicative: true;
+  prices: IndicativePrice[];
+  sourceAmount: string;
+}
+
 export interface CreateLinkInput {
   title: string;
   amount: string;
@@ -224,6 +237,12 @@ export const api = {
   getDetail: (id: string) => http<LinkDetail>(`/links/${id}/detail`),
 
   getReceipt: (reference: string) => http<PublicReceipt>(`/r/${reference}`),
+
+  /** Indicative SEP-38 prices for a paid link — no firm quote is consumed. */
+  getOfframpPreview: (id: string, currency?: string) =>
+    http<OfframpPreview>(
+      `/links/${id}/offramp-preview${currency ? `?currency=${encodeURIComponent(currency)}` : ""}`,
+    ),
 
   health: () => http<HealthResponse>("/health"),
 

@@ -36,6 +36,9 @@ export function makeLink(over: Partial<PaymentLink> = {}): PaymentLink {
     offrampJobId: null,
     offrampTargetCurrency: null,
     offrampStatus: null,
+    offrampIndicativeRate: null,
+    offrampRate: null,
+    offrampRateDelta: null,
     expiresAt: null,
     createdAt: 0,
     updatedAt: 0,
@@ -54,6 +57,9 @@ export class FakeLinkRepository implements LinkRepository {
   async create(input: CreateLinkInput): Promise<PaymentLink> {
     const link: PaymentLink = {
       ...input,
+      offrampIndicativeRate: null,
+      offrampRate: null,
+      offrampRateDelta: null,
       status: "active",
       txHash: null,
       payer: null,
