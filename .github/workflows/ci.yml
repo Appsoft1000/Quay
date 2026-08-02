@@ -28,6 +28,14 @@ jobs:
       - name: Test
         run: pnpm test
 
+      - name: Test scripts (db-backup/db-restore)
+        run: pnpm test:scripts
+      - name: Docs — status diagram hasn't drifted from status.ts
+        run: pnpm docs:check-status-diagram
+
+      - name: Docs — domain boundary (packages/core stays chain-agnostic)
+        run: pnpm docs:check-domain-boundary
+
       - name: Build
         run: pnpm build
         env:
@@ -69,7 +77,7 @@ jobs:
           fi
 
       - name: Trivy scan (fail on HIGH/CRITICAL)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.33.1
         with:
           image-ref: quay-api:ci
           severity: HIGH,CRITICAL
