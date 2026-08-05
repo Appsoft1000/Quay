@@ -11,6 +11,7 @@ import {
   type LinkRepository,
   type MatchOutcome,
   type NormalizedPayment,
+  type OffRampInitiation,
   type OffRampJob,
   type OffRampQuote,
   type OffRampPort,
@@ -525,7 +526,10 @@ export class LinkService {
   async triggerCashOut(
     linkId: string,
     body: CashOutBody,
-  ): Promise<OffRampJob & { quoteExpiresAt: number; quoteExpiresInSeconds: number }> {
+  ): Promise<{
+    job: OffRampJob & { quoteExpiresAt: number; quoteExpiresInSeconds: number };
+    initiation: OffRampInitiation;
+  }> {
     const link = await this.deps.links.findById(linkId);
     if (!link) throw new HttpError(404, "Link not found");
     if (link.status !== "paid") {
@@ -560,7 +564,7 @@ export class LinkService {
       });
 
     let quote: OffRampQuote;
-    let job: OffRampJob;
+    let initiation: OffRampInitiation;
     try {
       quote = await fetchFreshQuote();
 
@@ -573,7 +577,7 @@ export class LinkService {
         }
       }
 
-      job = await this.deps.offramp.initiate({
+      initiation = await this.deps.offramp.initiate({
         linkId: link.id,
         quoteId: quote.quoteId,
         payout: { currency: body.targetCurrency, fields: body.payoutFields },
@@ -587,9 +591,10 @@ export class LinkService {
       throw new HttpError(502, `Off-ramp error: ${message}`);
     }
 
+    const jobId = initiation.jobId;
     link.status = "offramp_pending";
-    link.offrampJobId = job.jobId;
-    link.offrampTargetCurrency = job.targetCurrency;
+    link.offrampJobId = jobId;
+    link.offrampTargetCurrency = quote.targetCurrency;
     link.offrampStatus = "pending";
 
     // Telemetry (issue 3.5): persist the firm rate and the spread vs. indicative.
@@ -609,10 +614,22 @@ export class LinkService {
     metrics.linkStatusTransitionsTotal.inc({ to: "offramp_pending" });
     this.cashOutStartedAt.set(link.id, Date.now());
 
+    const job: OffRampJob = {
+      jobId,
+      linkId: link.id,
+      status: "pending",
+      targetCurrency: quote.targetCurrency,
+      targetAmount: quote.targetAmount,
+      rate: quote.rate,
+    };
+
     const now = Date.now();
     const quoteExpiresInSeconds = Math.max(0, Math.floor((quote.expiresAt - now) / 1000));
 
-    return { ...job, quoteExpiresAt: quote.expiresAt, quoteExpiresInSeconds };
+    return {
+      job: { ...job, quoteExpiresAt: quote.expiresAt, quoteExpiresInSeconds },
+      initiation,
+    };
   }
 
   /** Advance any pending cash-outs by polling the off-ramp adapter. */

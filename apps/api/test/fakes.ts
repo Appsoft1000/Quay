@@ -6,6 +6,7 @@ import {
   type KycRecord,
   type LinkPaymentRecord,
   type LinkRepository,
+  type OffRampInitiation,
   type OffRampJob,
   type OffRampMode,
   type OffRampPort,
@@ -243,7 +244,7 @@ export class ScriptedOffRamp implements OffRampPort {
   async quote(): Promise<OffRampQuote> {
     throw new Error("not used in these tests");
   }
-  async initiate(): Promise<OffRampJob> {
+  async initiate(): Promise<OffRampInitiation> {
     throw new Error("not used in these tests");
   }
   async status(jobId: string): Promise<OffRampJob> {

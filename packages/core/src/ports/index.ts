@@ -140,6 +140,10 @@ export interface OffRampJob {
   reason?: string; // set when failed
 }
 
+export type OffRampInitiation =
+  | { kind: "fields"; jobId: string }
+  | { kind: "interactive"; jobId: string; url: string };
+
 export interface OffRampPort {
   readonly mode: OffRampMode;
   quote(input: {
@@ -148,7 +152,7 @@ export interface OffRampPort {
     sourceAmount: string;
     targetCurrency: string;
   }): Promise<OffRampQuote>;
-  initiate(input: { linkId: string; quoteId: string; payout: SellerPayoutRef }): Promise<OffRampJob>;
+  initiate(input: { linkId: string; quoteId: string; payout: SellerPayoutRef }): Promise<OffRampInitiation>;
   /** Throws {@link OffRampJobNotFoundError} when `jobId` has no known state — a
    *  crash/redeploy wiped an in-memory-only implementation, or the id is bogus. */
   status(jobId: string): Promise<OffRampJob>;

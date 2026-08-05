@@ -5,6 +5,7 @@ import {
   type LinkPaymentRecord,
   type LinkRepository,
   type NormalizedPayment,
+  type OffRampInitiation,
   type OffRampJob,
   type OffRampPort,
   type OffRampQuote,
@@ -205,7 +206,7 @@ class FakeOffRamp implements OffRampPort {
   async quote(): Promise<OffRampQuote> {
     throw new Error("not used in this suite");
   }
-  async initiate(): Promise<OffRampJob> {
+  async initiate(): Promise<OffRampInitiation> {
     throw new Error("not used in this suite");
   }
   async status(): Promise<OffRampJob> {

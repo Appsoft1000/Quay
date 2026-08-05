@@ -128,8 +128,8 @@ export function linkRoutes(c: Container, strictRateLimit: MiddlewareHandler): Ho
       if (existing.link.sellerId !== ctx.get("seller").id) {
         return ctx.json({ error: "forbidden", message: "this link belongs to a different seller" }, 403);
       }
-      const job = await c.service.triggerCashOut(ctx.req.param("id"), parsed.data);
-      return ctx.json({ job });
+      const { job, initiation } = await c.service.triggerCashOut(ctx.req.param("id"), parsed.data);
+      return ctx.json({ job, initiation });
     } catch (err) {
       if (err instanceof HttpError) return ctx.json({ error: err.message }, err.status as 403 | 404 | 409 | 502);
       throw err;

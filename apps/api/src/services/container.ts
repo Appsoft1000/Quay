@@ -287,7 +287,7 @@ function createKyc(sellerKeypair: Keypair | null, db: DB): KycPort {
   }
   if (!sellerKeypair) {
     throw new Error(
-      "OFFRAMP=testanchor requires the seller's secret key to sign SEP-10 auth: " +
+      `OFFRAMP=${env.offramp} requires the seller's secret key to sign SEP-10 auth: ` +
         "set DEFAULT_SELLER_SECRET (matching DEFAULT_SELLER_WALLET), or leave " +
         "DEFAULT_SELLER_WALLET unset on testnet to use the auto-generated keypair.",
     );

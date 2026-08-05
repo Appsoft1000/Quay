@@ -1,6 +1,7 @@
 import {
   OffRampJobNotFoundError,
   type AssetRef,
+  type OffRampInitiation,
   type OffRampJob,
   type OffRampMode,
   type OffRampPort,
@@ -126,7 +127,7 @@ export class MockAnchorOffRamp implements OffRampPort {
     linkId: string;
     quoteId: string;
     payout: SellerPayoutRef;
-  }): Promise<OffRampJob> {
+  }): Promise<OffRampInitiation> {
     const q = await this.state.getQuote(input.quoteId);
     if (!q) throw new Error("Unknown or expired quote");
     if (Date.now() > q.expiresAt) throw new Error("Quote expired");
@@ -149,14 +150,7 @@ export class MockAnchorOffRamp implements OffRampPort {
       updatedAt: now,
     });
 
-    return {
-      jobId,
-      linkId: input.linkId,
-      status: "pending",
-      targetCurrency: q.buyCurrency,
-      targetAmount,
-      rate: q.price,
-    };
+    return { kind: "fields", jobId };
   }
 
   async status(jobId: string): Promise<OffRampJob> {

@@ -23,6 +23,7 @@ import type {
   OffRampPort,
   OffRampQuote,
   OffRampJob,
+  OffRampInitiation,
 } from "@checkout/core";
 import type { StellarConfig } from "@checkout/stellar";
 import type { DB } from "../src/db/client";
@@ -164,15 +165,8 @@ export class FakeOffRampPort implements OffRampPort {
     linkId: string;
     quoteId: string;
     payout: { currency: string; fields: Record<string, string> };
-  }): Promise<OffRampJob> {
-    return {
-      jobId: `job_${this.nextJobId++}`,
-      linkId: input.linkId,
-      status: "pending",
-      targetCurrency: input.payout.currency,
-      targetAmount: "1000.00",
-      rate: "1650",
-    };
+  }): Promise<OffRampInitiation> {
+    return { kind: "fields", jobId: `job_${this.nextJobId++}` };
   }
 
   async status(_jobId: string): Promise<OffRampJob> {
