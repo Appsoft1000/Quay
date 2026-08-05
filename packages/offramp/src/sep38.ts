@@ -109,6 +109,7 @@ export async function getSep38Quote(
   const body = (await res.json()) as {
     id: string;
     price: string;
+    total_price: string;
     sell_amount: string;
     buy_amount: string;
     expires_at: string;

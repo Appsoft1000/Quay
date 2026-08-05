@@ -21,6 +21,8 @@ const BOOTSTRAP_SQL = [
      tx_hash TEXT, payer TEXT, paid_amount TEXT, overpaid_amount TEXT,
      offramp_job_id TEXT, offramp_target_currency TEXT, offramp_status TEXT,
      offramp_indicative_rate TEXT, offramp_rate TEXT, offramp_rate_delta TEXT,
+     offramp_fee_amount TEXT, offramp_fee_currency TEXT, offramp_fee_source TEXT,
+     offramp_net_target_amount TEXT,
      expires_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
    )`,
   // Cumulative payment ledger (issue 1.4) — one row per payment ever recorded
@@ -102,7 +104,13 @@ export function createDb(databaseUrl: string, authToken?: string): { db: DB; cli
 // Additive column added after the initial release. `CREATE TABLE IF NOT EXISTS`
 // above won't touch an existing table, so add it out-of-band; ignore the
 // "duplicate column" error on databases that already have it.
-const MIGRATIONS_SQL = [`ALTER TABLE links ADD COLUMN muxed_id TEXT`];
+const MIGRATIONS_SQL = [
+  `ALTER TABLE links ADD COLUMN muxed_id TEXT`,
+  `ALTER TABLE links ADD COLUMN offramp_fee_amount TEXT`,
+  `ALTER TABLE links ADD COLUMN offramp_fee_currency TEXT`,
+  `ALTER TABLE links ADD COLUMN offramp_fee_source TEXT`,
+  `ALTER TABLE links ADD COLUMN offramp_net_target_amount TEXT`,
+];
 
 /**
  * Upgrades a `webhooks` table created before the secret-rotation feature

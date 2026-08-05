@@ -102,6 +102,9 @@ export class MockAnchorOffRamp implements OffRampPort {
       throw new Error(`Mock anchor has no rate for ${input.targetCurrency}`);
     }
     const targetAmount = (Number(input.sourceAmount) * rate).toFixed(2);
+    const feeAmount = (Number(targetAmount) * 0.01).toFixed(2);
+    const netTargetAmount = (Number(targetAmount) - Number(feeAmount)).toFixed(2);
+
     const quoteId = id("quote");
     const now = Date.now();
     const expiresAt = now + this.quoteTtlMs;
@@ -126,6 +129,8 @@ export class MockAnchorOffRamp implements OffRampPort {
       targetAmount,
       rate: String(rate),
       expiresAt,
+      fee: { amount: feeAmount, currency: input.targetCurrency, source: "estimated" },
+      netTargetAmount,
     };
   }
 
@@ -138,7 +143,9 @@ export class MockAnchorOffRamp implements OffRampPort {
     if (!q) throw new Error("Unknown or expired quote");
     if (Date.now() > q.expiresAt) throw new Error("Quote expired");
 
-    const targetAmount = (Number(q.sellAmount) * Number(q.price)).toFixed(2);
+    const grossAmount = (Number(q.sellAmount) * Number(q.price)).toFixed(2);
+    const feeAmount = (Number(grossAmount) * 0.01).toFixed(2);
+    const targetAmount = (Number(grossAmount) - Number(feeAmount)).toFixed(2);
     const jobId = id("ofr");
     const now = Date.now();
 
