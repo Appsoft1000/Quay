@@ -9,6 +9,7 @@ import {
   type OffRampQuote,
   type IndicativePrice,
   type OffRampStateRepository,
+  type PayoutFieldDescriptor,
   type SellerPayoutRef,
 } from "@checkout/core";
 import { NOOP_LOGGER } from "@checkout/core";
@@ -43,6 +44,33 @@ const MOCK_RATES: Record<string, number> = {
   KES: 129,
   GHS: 15.5,
 };
+
+/**
+ * Hardcoded field descriptors for the mock anchor. These mirror the fields that
+ * `initiate()` reads from `payout.fields` so the dashboard form is consistent
+ * with what the mock actually uses.
+ */
+const MOCK_PAYOUT_FIELDS: PayoutFieldDescriptor[] = [
+  {
+    name: "type",
+    label: "Payout Method",
+    description: "How you want to receive the funds.",
+    optional: false,
+    choices: ["bank_account", "mobile_money"],
+  },
+  {
+    name: "dest",
+    label: "Bank Account / Mobile Number",
+    description: "Your bank account number or mobile money number.",
+    optional: false,
+  },
+  {
+    name: "dest_extra",
+    label: "Bank Code / Routing Info",
+    description: "Sort code, SWIFT/BIC, or mobile money provider code (if required).",
+    optional: true,
+  },
+];
 
 export interface MockAnchorOptions {
   state: OffRampStateRepository;
@@ -90,6 +118,14 @@ export class MockAnchorOffRamp implements OffRampPort {
       price: String(rate),
       deliveryMethods: ["BANK_TRANSFER"],
     }));
+  }
+
+  /**
+   * Field descriptors for the mock anchor's cash-out form. Fixed set
+   * mirroring what `initiate()` reads from `payout.fields` (issue #32).
+   */
+  async offrampRequirements(_assetCode: string): Promise<PayoutFieldDescriptor[]> {
+    return MOCK_PAYOUT_FIELDS;
   }
 
   async quote(

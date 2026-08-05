@@ -20,7 +20,9 @@ import {
   type OffRampStateRepository,
   type PaymentLink,
   type PaymentRequest,
+  type PayoutFieldDescriptor,
   type RailPort,
+  type Seller,
   type SellerRepository,
   type WebhookRepository,
   type IndicativePrice,
@@ -424,6 +426,42 @@ export class LinkService {
   }
 
   /**
+   * Returns the field descriptors for the off-ramp form, plus any payout
+   * fields the seller has already saved. Saved values are masked to the last 4
+   * chars server-side so the form can pre-fill / indicate "already on file"
+   * without ever leaking the raw bank account number to the browser (issue #32).
+   */
+  async getOfframpRequirements(linkId: string): Promise<{
+    descriptors: PayoutFieldDescriptor[];
+    savedFields: Record<string, string> | null;
+  }> {
+    const link = await this.deps.links.findById(linkId);
+    if (!link) throw new HttpError(404, "Link not found");
+
+    const seller = await this.deps.sellers.findById(link.sellerId);
+    if (!seller) throw new HttpError(404, "seller_not_found");
+
+    let descriptors: PayoutFieldDescriptor[];
+    try {
+      descriptors = await this.deps.offramp.offrampRequirements(link.asset.code);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new HttpError(502, `Off-ramp requirements error: ${message}`);
+    }
+
+    const savedFields: Record<string, string> | null = seller.payoutFields
+      ? Object.fromEntries(
+          Object.entries(seller.payoutFields).map(([k, v]) => [
+            k,
+            v.length <= 4 ? "****" : `${"*".repeat(v.length - 4)}${v.slice(-4)}`,
+          ]),
+        )
+      : null;
+
+    return { descriptors, savedFields };
+  }
+
+  /**
    * Apply a matched payment to its link. Returns whether the link advanced to
    * `paid` (so the watcher can decide what to log). Idempotency of the *payment*
    * (processed-tx ledger) is the caller's responsibility; here we additionally
@@ -637,6 +675,16 @@ export class LinkService {
     }
     const child = baseLog.child({ linkId: link.id });
 
+    // Merge: previously-saved fields are the base; submitted fields override.
+    // This means the seller only needs to re-enter fields they want to change
+    // (issue #32). The seller is keyed by the link's owner, not a global default.
+    const seller = await this.deps.sellers.findById(link.sellerId);
+    if (!seller) throw new HttpError(404, "seller_not_found");
+    const mergedFields: Record<string, string> = {
+      ...(seller.payoutFields ?? {}),
+      ...body.payoutFields,
+    };
+
     // Fail fast when the breaker is open: never attempt to call a known-dead
     // anchor. The HTTP layer maps this to 503 anchor_unavailable.
     if (!this.health.isAvailable()) {
@@ -695,7 +743,7 @@ export class LinkService {
       initiation = await this.deps.offramp.initiate({
         linkId: link.id,
         quoteId: quote.quoteId,
-        payout: { currency: body.targetCurrency, fields: body.payoutFields },
+        payout: { currency: body.targetCurrency, fields: mergedFields },
       }, { logger: child });
       child.info(
         {
@@ -717,6 +765,11 @@ export class LinkService {
         throw new HttpError(409, `quote_expired: ${err.message}`);
       }
       throw new HttpError(502, `Off-ramp error: ${message}`);
+    }
+
+    // Persist the (unmasked) merged fields for future reuse — never logged.
+    if (Object.keys(mergedFields).length > 0) {
+      await this.deps.sellers.savePayoutFields(seller.id, mergedFields);
     }
 
     const from = link.status;

@@ -94,6 +94,20 @@ export interface WatcherPort {
 //   initiate() ~ SEP-24 / SEP-31 (start a withdrawal/payout to local rails)
 //   status()   ~ poll the transfer to settlement
 
+/** Describes a single field the anchor needs before initiating a payout. */
+export interface PayoutFieldDescriptor {
+  /** Machine-readable field name, e.g. "dest", "dest_extra". */
+  name: string;
+  /** Human-readable label from the anchor, e.g. "Bank Account Number". */
+  label: string;
+  /** Optional longer explanation shown beneath the input. */
+  description?: string;
+  /** When true, the field may be omitted. */
+  optional: boolean;
+  /** If present, the field is a select/radio rather than a free-text input. */
+  choices?: string[];
+}
+
 export type OffRampMode = "seller_initiated" | "inline";
 
 export interface OffRampQuote {
@@ -173,6 +187,13 @@ export interface OffRampPort {
     sourceAsset: AssetRef;
     sourceAmount: string;
   }): Promise<IndicativePrice[]>;
+  /**
+   * Field descriptors the anchor requires before it will initiate a payout —
+   * SEP-6 GET /info for a real anchor, a fixed set for the mock. Drives the
+   * dynamic cash-out form (issue #32) so the dashboard never hardcodes bank
+   * fields.
+   */
+  offrampRequirements(assetCode: string): Promise<PayoutFieldDescriptor[]>;
 }
 
 /** One indicative price entry from SEP-38 GET /prices (issue 3.5). */
@@ -353,6 +374,12 @@ export interface Seller {
   id: string;
   name: string;
   wallet: string;
+  /**
+   * The seller's last-used payout destination fields (e.g. bank account).
+   * Null until the seller completes their first cash-out. Treated as
+   * sensitive — never logged or included in webhook payloads.
+   */
+  payoutFields: Record<string, string> | null;
   createdAt: number;
 }
 
@@ -363,6 +390,9 @@ export interface SellerRepository {
   /** Wallet-native signup: SEP-10 proved control of `wallet`, so it IS the identity.
    *  Idempotent — returns the existing seller if one is already registered for it. */
   createIfAbsent(wallet: string): Promise<Seller>;
+  /** Persist the seller's last-used payout destination fields for reuse on the
+   *  next cash-out (issue #32). Sensitive — never logged or webhook'd. */
+  savePayoutFields(sellerId: string, fields: Record<string, string>): Promise<void>;
 }
 
 /**

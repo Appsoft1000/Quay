@@ -18,6 +18,7 @@ import { NOOP_LOGGER } from "@checkout/core";
 import type {
   AssetRef,
   PaymentRequest,
+  PayoutFieldDescriptor,
   RailPort,
   WatcherPort,
   NormalizedPayment,
@@ -182,6 +183,10 @@ export class FakeOffRampPort implements OffRampPort {
       targetAmount: "1000.00",
       rate: "1650",
     };
+  }
+
+  async offrampRequirements(): Promise<PayoutFieldDescriptor[]> {
+    return [];
   }
 }
 

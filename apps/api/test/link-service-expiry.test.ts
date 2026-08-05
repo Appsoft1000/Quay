@@ -10,6 +10,7 @@ import {
   type OffRampPort,
   type OffRampQuote,
   type PaymentLink,
+  type PayoutFieldDescriptor,
   type RailPort,
   type Seller,
   type Webhook,
@@ -153,6 +154,7 @@ class FakeSellerRepo {
   async createIfAbsent(): Promise<Seller> {
     return this.seller;
   }
+  async savePayoutFields(): Promise<void> {}
 }
 
 // Captures successful deliveries (2xx) so tests can introspect the body.
@@ -222,6 +224,9 @@ class FakeOffRamp implements OffRampPort {
   async status(): Promise<OffRampJob> {
     throw new Error("not used in this suite");
   }
+  async offrampRequirements(): Promise<PayoutFieldDescriptor[]> {
+    return [];
+  }
 }
 
 const STELLAR: StellarConfig = {
@@ -288,6 +293,7 @@ async function makeFixture(): Promise<Fixture> {
     id: "s_1",
     name: "Demo",
     wallet: DEST,
+    payoutFields: null,
     createdAt: 1_700_000_000_000,
   });
   const service = new LinkService({

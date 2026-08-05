@@ -8,8 +8,12 @@ export type DB = LibSQLDatabase<typeof schema>;
 // CREATE TABLE IF NOT EXISTS so a fresh clone runs with no migration step.
 // (drizzle-kit push can manage this instead; see drizzle.config.ts.)
 const BOOTSTRAP_SQL = [
+  // payout_fields_json included here so fresh databases get the full schema
+  // (issue #32). Existing databases are handled by the ALTER TABLE statement
+  // in MIGRATIONS_SQL below.
   `CREATE TABLE IF NOT EXISTS sellers (
-     id TEXT PRIMARY KEY, name TEXT NOT NULL, wallet TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL
+     id TEXT PRIMARY KEY, name TEXT NOT NULL, wallet TEXT NOT NULL UNIQUE,
+     payout_fields_json TEXT, created_at INTEGER NOT NULL
    )`,
   // New columns (offramp_indicative_rate, offramp_rate, offramp_rate_delta) are
   // included here so fresh databases get the full schema. Existing databases are
@@ -95,12 +99,6 @@ const MIGRATION_SQL = [
   `ALTER TABLE links ADD COLUMN overpaid_amount TEXT`,
 ];
 
-export function createDb(databaseUrl: string, authToken?: string): { db: DB; client: Client } {
-  const client = createClient({ url: databaseUrl, authToken });
-  const db = drizzle(client, { schema });
-  return { db, client };
-}
-
 // Additive column added after the initial release. `CREATE TABLE IF NOT EXISTS`
 // above won't touch an existing table, so add it out-of-band; ignore the
 // "duplicate column" error on databases that already have it.
@@ -111,7 +109,18 @@ const MIGRATIONS_SQL = [
   `ALTER TABLE links ADD COLUMN offramp_fee_source TEXT`,
   `ALTER TABLE links ADD COLUMN offramp_net_target_amount TEXT`,
   `ALTER TABLE links ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0`,
+  // #32: store the seller's last-used payout destination (e.g. bank account).
+  //      Stored as plaintext JSON — NOT encrypted at rest by libSQL/Turso by
+  //      default — so this is treated as sensitive end-to-end: masked to the
+  //      last 4 chars in every API response and never logged or webhook'd.
+  `ALTER TABLE sellers ADD COLUMN payout_fields_json TEXT`,
 ];
+
+export function createDb(databaseUrl: string, authToken?: string): { db: DB; client: Client } {
+  const client = createClient({ url: databaseUrl, authToken });
+  const db = drizzle(client, { schema });
+  return { db, client };
+}
 
 /**
  * Upgrades a `webhooks` table created before the secret-rotation feature
