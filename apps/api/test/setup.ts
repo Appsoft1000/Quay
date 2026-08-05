@@ -14,6 +14,7 @@ import { SessionIssuer } from "../src/services/session";
 import type { Container } from "../src/services/container";
 import { NoKycRequired } from "@checkout/offramp";
 import { LinkService } from "../src/services/link-service";
+import { NOOP_LOGGER } from "@checkout/core";
 import type {
   AssetRef,
   PaymentRequest,
@@ -241,6 +242,7 @@ export async function createTestContainer(): Promise<TestContainer> {
 
   return {
     service,
+    logger: NOOP_LOGGER,
     links: repos.links,
     sellers: repos.sellers,
     webhooks: repos.webhooks,

@@ -1,5 +1,9 @@
 import type { AssetRef, PaymentLink } from "../domain/payment-link";
 import type { NormalizedPayment } from "../matching/match-payment";
+import type { Logger } from "./logger";
+
+export type { Logger } from "./logger";
+export { NOOP_LOGGER } from "./logger";
 
 // ---------------------------------------------------------------------------
 // Settlement rail port
@@ -146,16 +150,17 @@ export type OffRampInitiation =
 
 export interface OffRampPort {
   readonly mode: OffRampMode;
-  quote(input: {
-    linkId: string;
-    sourceAsset: AssetRef;
-    sourceAmount: string;
-    targetCurrency: string;
-  }): Promise<OffRampQuote>;
-  initiate(input: { linkId: string; quoteId: string; payout: SellerPayoutRef }): Promise<OffRampInitiation>;
+  quote(
+    input: { linkId: string; sourceAsset: AssetRef; sourceAmount: string; targetCurrency: string },
+    opts?: { logger?: Logger },
+  ): Promise<OffRampQuote>;
+  initiate(
+    input: { linkId: string; quoteId: string; payout: SellerPayoutRef },
+    opts?: { logger?: Logger },
+  ): Promise<OffRampInitiation>;
   /** Throws {@link OffRampJobNotFoundError} when `jobId` has no known state — a
    *  crash/redeploy wiped an in-memory-only implementation, or the id is bogus. */
-  status(jobId: string): Promise<OffRampJob>;
+  status(jobId: string, opts?: { logger?: Logger }): Promise<OffRampJob>;
   /**
    * Indicative prices for all available buy currencies — SEP-38 GET /prices.
    * Unauthenticated, no quote consumed. Used by the dashboard to show rates
