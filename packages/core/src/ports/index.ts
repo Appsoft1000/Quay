@@ -313,6 +313,8 @@ export interface CreateLinkInput {
   amount: string;
   asset: AssetRef;
   expiresAt: number | null;
+  /** When true this row was created by the demo seed script. */
+  isDemo?: boolean;
 }
 
 /** One incoming payment recorded against a link — the authoritative ledger

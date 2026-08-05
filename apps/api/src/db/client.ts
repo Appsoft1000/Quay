@@ -22,7 +22,7 @@ const BOOTSTRAP_SQL = [
      offramp_job_id TEXT, offramp_target_currency TEXT, offramp_status TEXT,
      offramp_indicative_rate TEXT, offramp_rate TEXT, offramp_rate_delta TEXT,
      offramp_fee_amount TEXT, offramp_fee_currency TEXT, offramp_fee_source TEXT,
-     offramp_net_target_amount TEXT,
+     offramp_net_target_amount TEXT, is_demo INTEGER NOT NULL DEFAULT 0,
      expires_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
    )`,
   // Cumulative payment ledger (issue 1.4) — one row per payment ever recorded
@@ -110,6 +110,7 @@ const MIGRATIONS_SQL = [
   `ALTER TABLE links ADD COLUMN offramp_fee_currency TEXT`,
   `ALTER TABLE links ADD COLUMN offramp_fee_source TEXT`,
   `ALTER TABLE links ADD COLUMN offramp_net_target_amount TEXT`,
+  `ALTER TABLE links ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0`,
 ];
 
 /**
@@ -155,7 +156,15 @@ async function migrateLegacyWebhooksTable(client: Client): Promise<void> {
 export async function bootstrap(client: Client): Promise<void> {
   await migrateLegacyWebhooksTable(client);
   for (const sql of BOOTSTRAP_SQL) {
-    await client.execute(sql);
+    try {
+      await client.execute(sql);
+    } catch (err) {
+      // Tolerate "duplicate column" errors from the ALTER TABLE migration so the
+      // bootstrap is idempotent on both fresh and pre-existing databases.
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("duplicate column") || msg.includes("already exists")) continue;
+      throw err;
+    }
   }
   for (const sql of MIGRATIONS_SQL) {
     try {

@@ -325,6 +325,7 @@ export class LinkService {
       amount: normalizeAmount(body.amount),
       asset,
       expiresAt,
+      isDemo: body.isDemo ?? false,
     });
     metrics.linkStatusTransitionsTotal.inc({ to: link.status });
 

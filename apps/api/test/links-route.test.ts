@@ -32,6 +32,7 @@ const ownedLink: PaymentLink = {
   offrampFeeSource: null,
   offrampNetTargetAmount: null,
   expiresAt: null,
+  isDemo: false,
   createdAt: Date.now(),
   updatedAt: Date.now(),
 };

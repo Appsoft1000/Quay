@@ -69,6 +69,8 @@ export interface PaymentLink {
   offrampFeeSource: string | null;
   offrampNetTargetAmount: string | null;
   expiresAt: number | null; // epoch ms
+  /** True for rows created by the demo seed script. Displayed as a badge in the UI. */
+  isDemo: boolean;
   createdAt: number;
   updatedAt: number;
 }

@@ -73,6 +73,7 @@ function rowToLink(row: LinkRow): PaymentLink {
     offrampFeeSource: row.offrampFeeSource ?? null,
     offrampNetTargetAmount: row.offrampNetTargetAmount ?? null,
     expiresAt: row.expiresAt ?? null,
+    isDemo: row.isDemo ?? false,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -109,6 +110,7 @@ export class DrizzleLinkRepository implements LinkRepository {
       offrampFeeSource: null,
       offrampNetTargetAmount: null,
       expiresAt: input.expiresAt,
+      isDemo: input.isDemo ?? false,
       createdAt: now,
       updatedAt: now,
     };
@@ -174,6 +176,15 @@ export class DrizzleLinkRepository implements LinkRepository {
         updatedAt: Date.now(),
       })
       .where(eq(links.id, link.id));
+  }
+
+  /** Delete all rows flagged as demo data. Called by `pnpm demo:reset`. */
+  async deleteDemo(): Promise<number> {
+    const rows = await this.db.select({ id: links.id }).from(links).where(eq(links.isDemo, true));
+    if (rows.length > 0) {
+      await this.db.delete(links).where(eq(links.isDemo, true));
+    }
+    return rows.length;
   }
 
   async recordPayment(payment: LinkPaymentRecord): Promise<void> {

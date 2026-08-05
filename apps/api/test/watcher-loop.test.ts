@@ -218,6 +218,7 @@ function makeTestLink(overrides: Partial<PaymentLink> = {}): PaymentLink {
     offrampFeeSource: null,
     offrampNetTargetAmount: null,
     expiresAt: null,
+    isDemo: false,
     createdAt: Date.now(),
     updatedAt: Date.now(),
     ...overrides,

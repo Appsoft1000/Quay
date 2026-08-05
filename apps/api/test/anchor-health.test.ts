@@ -56,6 +56,7 @@ function link(over: Partial<PaymentLink> = {}): PaymentLink {
     offrampFeeSource: null,
     offrampNetTargetAmount: null,
     expiresAt: null,
+    isDemo: false,
     createdAt: 1_700_000_000_000,
     updatedAt: 1_700_000_000_000,
     ...over,
@@ -272,6 +273,7 @@ class FakeLinkRepoForAnchor implements LinkRepository {
       offrampFeeSource: null,
       offrampNetTargetAmount: null,
       expiresAt: input.expiresAt,
+      isDemo: input.isDemo ?? false,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };

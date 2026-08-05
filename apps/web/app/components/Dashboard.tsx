@@ -27,6 +27,18 @@ function StatusPill({ status }: { status: string }) {
   return <span className={`pill pill--${status}`}>{label}</span>;
 }
 
+function DemoBadge() {
+  return (
+    <span
+      className="pill"
+      style={{ background: "var(--surface-2, #f3f4f6)", color: "var(--text-2, #6b7280)", fontSize: "0.7rem" }}
+      title="Created by the demo seed script — real on-chain testnet data"
+    >
+      demo
+    </span>
+  );
+}
+
 function amountLabel(link: PaymentLink): string {
   return `${link.amount} ${link.asset.code}`;
 }
@@ -156,6 +168,7 @@ function LinksTable({ links, copied, onCopy, onCashOut, cashOutBlocked }: TableP
               <Link href={`/links/${link.id}`} className="dash-link-title">
                 {link.title}
               </Link>
+              {link.isDemo && <> <DemoBadge /></>}
             </td>
             <td className="amt">
               {amountLabel(link)}

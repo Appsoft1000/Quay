@@ -50,6 +50,7 @@ export function makeLink(over: Partial<PaymentLink> = {}): PaymentLink {
     offrampFeeSource: null,
     offrampNetTargetAmount: null,
     expiresAt: null,
+    isDemo: false,
     createdAt: 0,
     updatedAt: 0,
     ...over,
@@ -84,6 +85,7 @@ export class FakeLinkRepository implements LinkRepository {
       offrampJobId: null,
       offrampTargetCurrency: null,
       offrampStatus: null,
+      isDemo: input.isDemo ?? false,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };

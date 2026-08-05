@@ -34,6 +34,7 @@ function link(over: Partial<PaymentLink> = {}): PaymentLink {
     offrampFeeSource: null,
     offrampNetTargetAmount: null,
     expiresAt: null,
+    isDemo: false,
     createdAt: 0,
     updatedAt: 0,
     ...over,
@@ -323,6 +324,7 @@ describe("property: exact payment is always paid", () => {
             offrampFeeSource: null,
             offrampNetTargetAmount: null,
             expiresAt: null,
+            isDemo: false,
             createdAt: 0,
             updatedAt: 0,
           };
@@ -377,6 +379,7 @@ describe("property: destination mismatch is never paid", () => {
             offrampFeeSource: null,
             offrampNetTargetAmount: null,
             expiresAt: null,
+            isDemo: false,
             createdAt: 0,
             updatedAt: 0,
           };
@@ -444,6 +447,7 @@ describe("property: memo whitespace is not trimmed", () => {
             offrampFeeSource: null,
             offrampNetTargetAmount: null,
             expiresAt: null,
+            isDemo: false,
             createdAt: 0,
             updatedAt: 0,
           };
