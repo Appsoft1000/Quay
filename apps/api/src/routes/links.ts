@@ -1,5 +1,5 @@
 import { Hono, type MiddlewareHandler } from "hono";
-import { createLinkSchema, cashOutSchema } from "@checkout/core";
+import { createLinkSchema, cashOutSchema, type PaymentLink } from "@checkout/core";
 import type { Container } from "../services/container";
 import { HttpError } from "../services/link-service";
 import { buildAuthMiddleware, requireScope, type AuthVariables } from "../middleware/auth";
@@ -84,7 +84,7 @@ export function linkRoutes(c: Container, strictRateLimit: MiddlewareHandler): Ho
         [
           l.id,
           l.reference,
-          `"${l.title.replace(/"/g, '""')}"`,
+          csvCell(l.title),
           l.amount,
           l.asset.code,
           l.status,
@@ -105,11 +105,19 @@ export function linkRoutes(c: Container, strictRateLimit: MiddlewareHandler): Ho
 
   // Fetch one link plus its payment request (for the checkout page).
   // PUBLIC by design — the link id is the bearer capability, and the buyer must
-  // be able to read this to pay. Returns only what the checkout page renders.
+  // be able to read this to pay.
+  //
+  // The response is an explicit whitelist, not the stored row. This used to
+  // return the whole PaymentLink, which meant anyone holding a link id could
+  // read the seller's realized FX rate, the indicative-vs-firm spread, and the
+  // anchor fees they paid (offrampRate, offrampRateDelta, offrampFeeAmount,
+  // offrampNetTargetAmount, …) plus the internal sellerId. None of that is
+  // needed to pay an invoice. Seller-facing views use the gated
+  // GET /:id/detail, which still returns everything.
   app.get("/:id", async (ctx) => {
     const result = await c.service.getLink(ctx.req.param("id"), { logger: getLogger(ctx) });
     if (!result) return ctx.json({ error: "not_found" }, 404);
-    return ctx.json(result);
+    return ctx.json({ link: toCheckoutView(result.link), request: result.request });
   });
 
   // Indicative off-ramp prices — SEP-38 GET /prices, no firm quote consumed.
@@ -252,6 +260,48 @@ export function linkRoutes(c: Container, strictRateLimit: MiddlewareHandler): Ho
   });
 
   return app;
+}
+
+/**
+ * The buyer-visible projection of a payment link.
+ *
+ * Whitelist, deliberately — a field is exposed to an unauthenticated holder of
+ * the link id only if the checkout page or the embeddable widget actually
+ * renders it. Everything about the seller's off-ramp economics stays behind the
+ * gated seller routes.
+ */
+export function toCheckoutView(link: PaymentLink) {
+  return {
+    id: link.id,
+    reference: link.reference,
+    destination: link.destination,
+    muxedId: link.muxedId,
+    title: link.title,
+    amount: link.amount,
+    asset: link.asset,
+    status: link.status,
+    txHash: link.txHash,
+    paidAmount: link.paidAmount,
+    expiresAt: link.expiresAt,
+    isDemo: link.isDemo,
+    createdAt: link.createdAt,
+    updatedAt: link.updatedAt,
+  };
+}
+
+/**
+ * Quote a CSV cell and neutralise spreadsheet formula injection.
+ *
+ * Excel, LibreOffice and Google Sheets evaluate any cell whose first character
+ * is `=`, `+`, `-`, `@`, or a leading tab/CR as a formula — so a link titled
+ * `=cmd|'/c calc'!A1` becomes executable content in the reconciliation export.
+ * Prefixing with an apostrophe makes the spreadsheet treat it as literal text;
+ * the apostrophe is not displayed. Quotes are still doubled per RFC 4180.
+ */
+export function csvCell(value: string): string {
+  const escaped = value.replace(/"/g, '""');
+  const needsGuard = /^[=+\-@\t\r]/.test(value);
+  return `"${needsGuard ? `'${escaped}` : escaped}"`;
 }
 
 async function safeJson(ctx: { req: { json: () => Promise<unknown> } }): Promise<unknown> {
