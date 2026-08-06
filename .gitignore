@@ -8,3 +8,6 @@ dist
 .env
 .env.local
 PR.md
+
+# Rust / Soroban build output
+contracts/target
