@@ -181,11 +181,24 @@ export class DrizzleLinkRepository implements LinkRepository {
       .where(eq(links.id, link.id));
   }
 
-  /** Delete all rows flagged as demo data. Called by `pnpm demo:reset`. */
-  async deleteDemo(): Promise<number> {
-    const rows = await this.db.select({ id: links.id }).from(links).where(eq(links.isDemo, true));
+  /**
+   * Delete rows flagged as demo data. Called by `pnpm demo:reset` and by
+   * `POST /demo/reset`.
+   *
+   * `sellerId` scopes the delete to one seller's demo rows. It is required on
+   * the HTTP path: SEP-10 registration is open, so any keypair holder can
+   * authenticate, and an unscoped delete let any one of them wipe every
+   * seller's demo data on a shared testnet deployment. Omitting it (the CLI
+   * path, which is already an operator-level action) keeps the original
+   * delete-everything behaviour.
+   */
+  async deleteDemo(sellerId?: string): Promise<number> {
+    const where = sellerId
+      ? and(eq(links.isDemo, true), eq(links.sellerId, sellerId))
+      : eq(links.isDemo, true);
+    const rows = await this.db.select({ id: links.id }).from(links).where(where);
     if (rows.length > 0) {
-      await this.db.delete(links).where(eq(links.isDemo, true));
+      await this.db.delete(links).where(where);
     }
     return rows.length;
   }
