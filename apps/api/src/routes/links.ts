@@ -144,7 +144,7 @@ export function linkRoutes(c: Container, strictRateLimit: MiddlewareHandler): Ho
   // Seller-only: it returns the seller's own saved payout destination, so it is
   // gated and ownership-checked like the other seller routes — never reachable
   // with just a link id.
-  app.get("/:id/offramp-requirements", auth, async (ctx) => {
+  app.get("/:id/offramp-requirements", auth, requireScope("links:read"), async (ctx) => {
     try {
       const owned = await c.service.getLink(ctx.req.param("id"));
       if (!owned) return ctx.json({ error: "not_found" }, 404);
@@ -162,7 +162,7 @@ export function linkRoutes(c: Container, strictRateLimit: MiddlewareHandler): Ho
   // Firm cash-out quote — gross/fee/net — without initiating anything (issue
   // 1.5). Seller-only: mirrors the ownership check on cash-out itself, since
   // this exercises the same KYC/health gates and hits the anchor for real.
-  app.get("/:id/cash-out/quote", auth, async (ctx) => {
+  app.get("/:id/cash-out/quote", auth, requireScope("links:read"), async (ctx) => {
     const linkId = ctx.req.param("id");
     const targetCurrency = ctx.req.query("targetCurrency");
     if (!targetCurrency) return ctx.json({ error: "invalid_query", message: "targetCurrency is required" }, 400);
@@ -181,7 +181,14 @@ export function linkRoutes(c: Container, strictRateLimit: MiddlewareHandler): Ho
   });
 
   // Seller-initiated cash-out to local currency.
-  app.post("/:id/cash-out", strictRateLimit, auth, idempotent, async (ctx) => {
+  //
+  // requireScope("offramp:initiate") is the point of that scope existing: it is
+  // deliberately excluded from DEFAULT_SCOPES (see services/api-keys.ts) because
+  // this route moves money, so a key must opt into it explicitly. Without the
+  // guard mounted here, any key carrying only the default
+  // links:read/links:write/webhooks:manage set could cash a paid link out — the
+  // scope was documented and enforced nowhere.
+  app.post("/:id/cash-out", strictRateLimit, auth, requireScope("offramp:initiate"), idempotent, async (ctx) => {
     const log = getLogger(ctx);
     const linkId = ctx.req.param("id");
     const parsed = cashOutSchema.safeParse(await safeJson(ctx));

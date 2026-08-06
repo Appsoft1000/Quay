@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import {
   buildAuthMiddleware,
   requireScope,
+  apiKeyRateLimitKey,
   type AuthVariables,
 } from "../src/middleware/auth";
-import { generateApiKey, hashApiKey, ALL_SCOPES, type ApiKeyScope } from "../src/services/api-keys";
+import { generateApiKey, hashApiKey, ALL_SCOPES, KEY_PREFIX_LEN, type ApiKeyScope } from "../src/services/api-keys";
 import { createTestContainer, type TestContainer } from "./setup";
 
 /**
@@ -160,5 +161,129 @@ describe("buildAuthMiddleware — composed API-key + session auth", () => {
     const res = await app.request("/write", { headers: { authorization: `Bearer ${token}` } });
     expect(res.status).toBe(200);
     container.client.close();
+  });
+
+  // Regression, BUG-6.7. `offramp:initiate` is excluded from DEFAULT_SCOPES
+  // precisely because cash-out moves money, and services/api-keys.ts documents
+  // that contract — but routes/links.ts never mounted requireScope for it, so a
+  // key holding only the default set reached the cash-out handler and was
+  // stopped by link state (409) rather than by authorization (403).
+  describe("off-ramp routes enforce their scopes", () => {
+    function offrampApp(container: TestContainer): Hono<{ Variables: AuthVariables }> {
+      const app = new Hono<{ Variables: AuthVariables }>();
+      app.use(
+        "*",
+        buildAuthMiddleware({
+          session: container.auth.session,
+          sellers: container.sellers,
+          revocations: container.auth.revocations,
+          apiKeyRepo: container.apiKeys,
+        }),
+      );
+      // Mirrors the guard stack in routes/links.ts.
+      app.post("/:id/cash-out", requireScope("offramp:initiate"), (ctx) => ctx.json({ reached: true }));
+      app.get("/:id/cash-out/quote", requireScope("links:read"), (ctx) => ctx.json({ reached: true }));
+      app.get("/:id/offramp-requirements", requireScope("links:read"), (ctx) => ctx.json({ reached: true }));
+      return app;
+    }
+
+    it("a default-scope key cannot initiate a cash-out", async () => {
+      const container = await createTestContainer();
+      const app = offrampApp(container);
+      // Exactly DEFAULT_SCOPES — what `POST /api-keys` grants when the caller
+      // does not ask for anything.
+      const raw = await mintKey(container, ["links:read", "links:write", "webhooks:manage"]);
+
+      const res = await app.request("/lnk_x/cash-out", {
+        method: "POST",
+        headers: { authorization: `Bearer ${raw}` },
+      });
+
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error: "missing_scope", required: "offramp:initiate" });
+      container.client.close();
+    });
+
+    it("a key that opted into offramp:initiate reaches the handler", async () => {
+      const container = await createTestContainer();
+      const app = offrampApp(container);
+      const raw = await mintKey(container, ["offramp:initiate"]);
+
+      const res = await app.request("/lnk_x/cash-out", {
+        method: "POST",
+        headers: { authorization: `Bearer ${raw}` },
+      });
+
+      expect(res.status).toBe(200);
+      container.client.close();
+    });
+
+    it("the off-ramp read routes require links:read", async () => {
+      const container = await createTestContainer();
+      const app = offrampApp(container);
+      const raw = await mintKey(container, ["webhooks:manage"]); // no links:read
+
+      for (const path of ["/lnk_x/cash-out/quote", "/lnk_x/offramp-requirements"]) {
+        const res = await app.request(path, { headers: { authorization: `Bearer ${raw}` } });
+        expect(res.status, path).toBe(403);
+        expect(await res.json()).toEqual({ error: "missing_scope", required: "links:read" });
+      }
+      container.client.close();
+    });
+  });
+
+  // Regression, BUG-6.8. apiKeyRateLimitKey used to bucket on the raw bearer
+  // prefix after only a string test, so rotating the characters after
+  // `ak_live_` minted a fresh bucket per request and the strict limiter was
+  // bypassed entirely on link creation, cash-out and key management.
+  describe("apiKeyRateLimitKey only trusts a prefix that resolves to a live key", () => {
+    function keyCtx(authorization?: string): Context {
+      const req = new Request("http://localhost/links", {
+        method: "POST",
+        headers: authorization ? { authorization } : {},
+      });
+      return { req: { header: (n: string) => req.headers.get(n) ?? undefined } } as unknown as Context;
+    }
+
+    it("falls back to the IP bucket for a forged prefix", async () => {
+      const container = await createTestContainer();
+      const keyFor = apiKeyRateLimitKey(container.apiKeys);
+
+      const a = await keyFor(keyCtx("Bearer ak_live_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), 0);
+      const b = await keyFor(keyCtx("Bearer ak_live_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"), 0);
+      const none = await keyFor(keyCtx(), 0);
+
+      // Two different forged prefixes must NOT produce two different buckets.
+      expect(a).toBe(b);
+      expect(a).toBe(none);
+      expect(a.startsWith("ip:")).toBe(true);
+      container.client.close();
+    });
+
+    it("buckets a real key by its own prefix", async () => {
+      const container = await createTestContainer();
+      const keyFor = apiKeyRateLimitKey(container.apiKeys);
+      const raw = await mintKey(container, ["links:write"]);
+
+      const bucket = await keyFor(keyCtx(`Bearer ${raw}`), 0);
+
+      expect(bucket).toBe(`api-key:${raw.slice(0, KEY_PREFIX_LEN)}`);
+      expect(bucket.startsWith("ip:")).toBe(false);
+      container.client.close();
+    });
+
+    it("stops bucketing by prefix once the key is revoked", async () => {
+      const container = await createTestContainer();
+      const keyFor = apiKeyRateLimitKey(container.apiKeys);
+      const raw = await mintKey(container, ["links:write"]);
+      const seller = await container.sellers.getDefault();
+      const [minted] = await container.apiKeys.listBySeller(seller.id);
+      await container.apiKeys.revoke(minted!.id);
+
+      const bucket = await keyFor(keyCtx(`Bearer ${raw}`), 0);
+
+      expect(bucket.startsWith("ip:")).toBe(true);
+      container.client.close();
+    });
   });
 });
