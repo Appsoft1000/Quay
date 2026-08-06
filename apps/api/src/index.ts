@@ -56,7 +56,7 @@ async function main(): Promise<void> {
     max: env.rateLimitStrictMax,
     store: rateLimitStore,
     trustProxyHops: env.trustProxyHops,
-    keyFor: apiKeyRateLimitKey,
+    keyFor: apiKeyRateLimitKey(container.apiKeys),
   });
 
   app.get("/health", async (ctx) => {
