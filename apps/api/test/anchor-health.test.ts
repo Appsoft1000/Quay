@@ -13,6 +13,7 @@ import {
   type OffRampPort,
   type OffRampQuote,
   type OffRampStateRepository,
+  type OffRampTelemetryRepository,
   type PaymentLink,
   type PayoutFieldDescriptor,
   type RailPort,
@@ -27,6 +28,15 @@ import type { StellarConfig } from "@checkout/stellar";
 import { AnchorHealth, LinkService } from "../src/services/link-service";
 import { encryptSecret } from "../src/services/secret-crypto";
 import { Hono } from "hono";
+
+/** No-op telemetry stub — tests that predate #20 don't assert on telemetry writes. */
+const noopTelemetry = {
+  upsert: async () => {},
+  findById: async () => null,
+  findByJobId: async () => null,
+  summary: async () => [],
+  all: async () => [],
+} as unknown as OffRampTelemetryRepository;
 
 const DEST = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
 const ISSUER = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
@@ -507,6 +517,7 @@ function buildSvcWithHealth(health: AnchorHealth, offramp: OffRampPort): Svc {
     offrampState: new FakeOffRampStateForAnchor(),
     kyc: new FakeKycAlwaysAcceptedForAnchor(),
     stellar: STELLAR,
+    telemetry: noopTelemetry,
     health,
     correlation: "memo",
     webhookGuard: async () => ({ ok: true }) as const,
@@ -696,6 +707,7 @@ describe("LinkService.pollCashOuts attribution", () => {
       offrampState: new FakeOffRampStateForAnchor(),
       kyc: new FakeKycAlwaysAcceptedForAnchor(),
       stellar: STELLAR,
+      telemetry: noopTelemetry,
       health: new AnchorHealth({ enabled: false, url: null, homeDomain: null }),
       correlation: "memo",
     webhookGuard: async () => ({ ok: true }) as const,
@@ -748,6 +760,7 @@ describe("LinkService.pollCashOuts attribution", () => {
       offrampState: new FakeOffRampStateForAnchor(),
       kyc: new FakeKycAlwaysAcceptedForAnchor(),
       stellar: STELLAR,
+      telemetry: noopTelemetry,
       health: new AnchorHealth({ enabled: false, url: null, homeDomain: null }),
       correlation: "memo",
     webhookGuard: async () => ({ ok: true }) as const,
@@ -794,6 +807,7 @@ describe("LinkService.pollCashOuts attribution", () => {
       offrampState: new FakeOffRampStateForAnchor(),
       kyc: new FakeKycAlwaysAcceptedForAnchor(),
       stellar: STELLAR,
+      telemetry: noopTelemetry,
       health: new AnchorHealth({ enabled: false, url: null, homeDomain: null }),
       correlation: "memo",
     webhookGuard: async () => ({ ok: true }) as const,
@@ -835,6 +849,7 @@ describe("LinkService.pollCashOuts attribution", () => {
       offrampState: new FakeOffRampStateForAnchor(),
       kyc: new FakeKycAlwaysAcceptedForAnchor(),
       stellar: STELLAR,
+      telemetry: noopTelemetry,
       health: new AnchorHealth({ enabled: false, url: null, homeDomain: null }),
       correlation: "memo",
     webhookGuard: async () => ({ ok: true }) as const,

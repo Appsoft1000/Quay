@@ -8,7 +8,7 @@ import {
   type HorizonStatus,
 } from "@checkout/stellar";
 import { MockAnchorOffRamp, NoKycRequired, TestAnchorKyc, TestAnchorOffRamp } from "@checkout/offramp";
-import type { KycPort, Logger, OffRampPort, OffRampStateRepository } from "@checkout/core";
+import type { KycPort, Logger, OffRampPort, OffRampStateRepository, OffRampTelemetryRepository } from "@checkout/core";
 import { env } from "../env";
 import { createDb, bootstrap, type DB } from "../db/client";
 import { parsePiiKey } from "../crypto/pii";
@@ -21,6 +21,7 @@ import {
   DrizzleTokenRevocationRepository,
   DrizzleOffRampStateRepository,
   DrizzleKycRepository,
+  DrizzleOfframpTelemetryRepository,
   DrizzleApiKeyRepository,
 } from "../repos/index";
 import { LinkService, AnchorHealth } from "./link-service";
@@ -46,6 +47,7 @@ export interface Container {
   apiKeys: DrizzleApiKeyRepository;
   db: DB;
   kyc: KycPort;
+  telemetry: OffRampTelemetryRepository;
   config: { network: string; horizonUrl: string; sellerWallet: string };
   horizonStatus(): HorizonStatus;
   /** Optional SSRF guard override for webhook URLs. Tests inject a permissive
@@ -90,6 +92,7 @@ export async function createContainer(): Promise<Container> {
   const stateRepo = new DrizzleWatcherStateRepository(db);
   const revocationsRepo = new DrizzleTokenRevocationRepository(db);
   const offrampStateRepo = new DrizzleOffRampStateRepository(db);
+  const telemetryRepo = new DrizzleOfframpTelemetryRepository(db);
   const apiKeysRepo = new DrizzleApiKeyRepository(db);
 
   const seller = resolveSellerKeypairOrWallet(logger);
@@ -126,6 +129,7 @@ export async function createContainer(): Promise<Container> {
     offrampState: offrampStateRepo,
     kyc,
     stellar,
+    telemetry: telemetryRepo,
     health: anchorHealth,
     correlation: env.correlation,
   });
@@ -181,6 +185,7 @@ export async function createContainer(): Promise<Container> {
     apiKeys: apiKeysRepo,
     db,
     kyc,
+    telemetry: telemetryRepo,
     config: { network: stellar.network, horizonUrl: stellar.horizonUrl, sellerWallet },
     horizonStatus: () => pollingWatcher.getStatus(),
     metricsToken,
