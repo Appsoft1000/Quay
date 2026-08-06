@@ -36,6 +36,7 @@ import { horizonSignerFetcher } from "./horizon-signers";
 import { SessionIssuer } from "./session";
 import type { StellarTomlConfig } from "../routes/well-known";
 import { CircuitBreakerOffRamp } from "./circuit-breaker";
+import { assertKeyConfigured } from "./secret-crypto";
 
 export interface Container {
   service: LinkService;
@@ -74,6 +75,14 @@ export async function createContainer(): Promise<Container> {
   // (LinkService, off-ramp adapters, webhook sender) inherit requestId
   // without us needing any ambient / AsyncLocalStorage plumbing.
   const logger = createLogger({ level: env.logLevel, base: { network: env.network } });
+
+  // Resolve the webhook-secret encryption key NOW rather than lazily on the
+  // first encrypt/decrypt. `secret-crypto.ts` throws when the key is missing in
+  // production — but it is only reached when a seller first registers a
+  // webhook, so a misconfigured deploy boots green and fails on a customer's
+  // request hours later. Touching it here turns that into a boot failure the
+  // deploy itself surfaces.
+  assertKeyConfigured();
 
   const stellar = resolveStellarConfig({
     network: env.network,

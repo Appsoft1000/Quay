@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach } from "vitest";
 
+
 // A fixed 32-byte key so tests are deterministic and don't depend on the
 // insecure dev-fallback warning path.
 process.env.WEBHOOK_SECRET_ENCRYPTION_KEY = "0".repeat(64);
 
-const { encryptSecret, decryptSecret, last4, __resetKeyCacheForTests } = await import(
+const { encryptSecret, decryptSecret, last4, assertKeyConfigured, __resetKeyCacheForTests } = await import(
   "../src/services/secret-crypto"
 );
 
@@ -52,5 +53,49 @@ describe("secret-crypto", () => {
     expect(() => encryptSecret("x")).toThrow(/32 bytes/);
     process.env.WEBHOOK_SECRET_ENCRYPTION_KEY = "0".repeat(64);
     __resetKeyCacheForTests();
+  });
+
+  // Regression, BUG-4.11: key resolution used to be reached only when a seller
+  // first registered a webhook, so a production deploy with no
+  // WEBHOOK_SECRET_ENCRYPTION_KEY booted green and 500'd on a customer request
+  // hours later. createContainer() now calls assertKeyConfigured() at boot.
+  describe("assertKeyConfigured (boot-time fail-fast)", () => {
+    const restore = (nodeEnv: string | undefined, key: string | undefined) => {
+      if (nodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = nodeEnv;
+      if (key === undefined) delete process.env.WEBHOOK_SECRET_ENCRYPTION_KEY;
+      else process.env.WEBHOOK_SECRET_ENCRYPTION_KEY = key;
+      __resetKeyCacheForTests();
+    };
+
+    it("throws in production when the key is missing", () => {
+      const prevEnv = process.env.NODE_ENV;
+      const prevKey = process.env.WEBHOOK_SECRET_ENCRYPTION_KEY;
+      __resetKeyCacheForTests();
+      delete process.env.WEBHOOK_SECRET_ENCRYPTION_KEY;
+      process.env.NODE_ENV = "production";
+
+      expect(() => assertKeyConfigured()).toThrow(/WEBHOOK_SECRET_ENCRYPTION_KEY is required in production/);
+
+      restore(prevEnv, prevKey);
+    });
+
+    it("throws in production when the key is present but malformed", () => {
+      const prevEnv = process.env.NODE_ENV;
+      const prevKey = process.env.WEBHOOK_SECRET_ENCRYPTION_KEY;
+      __resetKeyCacheForTests();
+      process.env.WEBHOOK_SECRET_ENCRYPTION_KEY = "tooshort";
+      process.env.NODE_ENV = "production";
+
+      expect(() => assertKeyConfigured()).toThrow(/32 bytes/);
+
+      restore(prevEnv, prevKey);
+    });
+
+    it("resolves quietly when a valid key is configured", () => {
+      __resetKeyCacheForTests();
+      process.env.WEBHOOK_SECRET_ENCRYPTION_KEY = "0".repeat(64);
+      expect(() => assertKeyConfigured()).not.toThrow();
+    });
   });
 });
