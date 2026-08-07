@@ -46,12 +46,11 @@ services:
         value: https://quay-web.vercel.app
       - key: DEFAULT_SELLER_WALLET
         value: GBMDH3QWSD74ILWD2ZVFOAOCMVRNPNGAHN557WA4KABLI5IFN2XYLMGY
-      # The domain this service identifies as in SEP-10 challenges and in
-      # /.well-known/stellar.toml. Unset, env.ts falls back to
-      # `localhost:8787` and every challenge is issued for localhost — wallet
-      # login cannot work against the deployed API at all.
-      - key: HOME_DOMAIN
-        value: quay-api.onrender.com
+      # HOME_DOMAIN is intentionally NOT declared here. env.ts derives it from
+      # RENDER_EXTERNAL_HOSTNAME, which Render injects into every service, so
+      # there is nothing to keep in sync and nothing to forget. Set it in the
+      # dashboard only if a custom domain or proxy is put in front, where the
+      # host wallets fetch stellar.toml from stops matching the platform's.
       - key: DATABASE_URL
         sync: false
       - key: DATABASE_AUTH_TOKEN
