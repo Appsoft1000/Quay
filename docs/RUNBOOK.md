@@ -21,6 +21,53 @@ Operational procedures for the Quay API (deploy target: Render, see
   Turso database. Time the real restore path (`pnpm db:restore`) against a
   representative data volume before quoting an RTO to anyone relying on it.
 
+## Required environment variables
+
+`.env.example` documents every variable this service reads. This table is the
+narrower question an operator actually asks at deploy time: **which ones will
+break production if they are missing?** Everything not listed here has a safe
+default.
+
+| Variable | Required when | What breaks without it |
+|---|---|---|
+| `DATABASE_URL` · `DATABASE_AUTH_TOKEN` | always (prod) | No persistence; falls back to a local SQLite file inside the container, which is destroyed on every deploy |
+| `KYC_ENCRYPTION_KEY` | `OFFRAMP=testanchor` | **Process will not boot.** `env.ts` resolves it with `req()` at module load and throws `Missing required env var: KYC_ENCRYPTION_KEY` |
+| `WEBHOOK_SECRET_ENCRYPTION_KEY` | `NODE_ENV=production` | **Process will not boot** (`createContainer()` calls `assertKeyConfigured()`). Before that check existed, it fell back to a hardcoded public dev key and 500'd on the first webhook registration |
+| `JWT_SECRET` | `STELLAR_NETWORK=public`; strongly advised on testnet | Auto-generated per boot, so every restart and deploy logs every seller out |
+| `SERVER_SIGNING_SECRET` | `STELLAR_NETWORK=public`; strongly advised on testnet | Auto-generated per boot, so the `SIGNING_KEY` published in `stellar.toml` changes on every restart and any wallet that cached it breaks |
+| `HOME_DOMAIN` | any real deployment | Falls back to `localhost:8787`. SEP-10 challenges are issued for localhost and `stellar.toml` advertises `WEB_AUTH_ENDPOINT="https://localhost:8787/auth"` — **wallet login cannot work at all** |
+| `CORS_ORIGINS` | always | The browser refuses the dashboard's cross-origin calls |
+| `DEFAULT_SELLER_SECRET` | `OFFRAMP=testanchor` with `DEFAULT_SELLER_WALLET` set | SEP-10 cannot sign the anchor's auth challenge, so every cash-out fails |
+| `METRICS_TOKEN` | optional | Auto-generated per boot and printed once, so `/metrics` scraping breaks on each restart |
+| `REDIS_URL` | more than one instance | See the scaling note below |
+
+Generate each 32-byte hex key with:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+`render.yaml` declares all of these; the `sync: false` entries must be filled in
+from the Render dashboard on first deploy. Adding a new `req()` call to
+`apps/api/src/env.ts` without adding the matching `render.yaml` entry is what
+caused the 2026-07-31 outage — see `docs/FIXLOG.md` `BUG-4.11`.
+
+### Scaling past one instance
+
+Three structures are per-process today, and each silently loses its guarantee
+if a second instance is started. The Render blueprint runs exactly one
+instance, which is what makes the current setup correct — treat this as a hard
+prerequisite, not a preference:
+
+- **Rate limiting** — `MemoryStore` unless `REDIS_URL` is set. Already has a
+  `RedisStore`; just configure it.
+- **SEP-10 challenge nonces** — `ChallengeService` holds used challenge hashes
+  in an in-process `Map`, so a restart or a second instance makes an
+  already-redeemed challenge redeemable again inside its 15-minute window.
+- **Idempotency in-flight guard** — `idempotency()` tracks concurrent requests
+  in a per-process `Map`. The persisted replay table still works; only the
+  concurrent-duplicate guard is lost, and it guards a money endpoint.
+
 ## Deploy
 
 Render deploys `apps/api` as a single always-on Docker web service (starter

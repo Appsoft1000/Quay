@@ -21,6 +21,7 @@ function fakeContainer(): Container {
     kyc: {} as Container["kyc"],
     apiKeys: {} as Container["apiKeys"],
     db: {} as Container["db"],
+    telemetry: { upsert: async () => {}, summary: async () => [], all: async () => [] } as unknown as Container["telemetry"],
     auth: {} as Container["auth"],
     getWatcherCircuitBreakerStatus: () => [],
     getWatcherMetrics: () => ({
