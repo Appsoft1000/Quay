@@ -27,7 +27,10 @@ services:
     plan: starter
     dockerfilePath: ./apps/api/Dockerfile
     dockerContext: .
-    healthCheckPath: /health
+    # /ready checks the database is actually reachable (readiness), not just
+    # that the process is up (/health, liveness) - matches the Dockerfile's
+    # own HEALTHCHECK target. See apps/api/src/index.ts.
+    healthCheckPath: /ready
     envVars:
       - key: API_PORT
         value: "8787"

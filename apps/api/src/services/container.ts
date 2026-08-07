@@ -72,6 +72,8 @@ export interface Container {
   };
   start(): void;
   stop(): void;
+  /** Readiness probe: can this instance actually serve traffic right now (i.e. is the database reachable)? Distinct from liveness (`/health`) - a process can be alive but not yet/no-longer able to serve. */
+  ready(): Promise<boolean>;
   getWatcherCircuitBreakerStatus(): AccountCircuitBreakerStatus[];
   getWatcherMetrics(): WatcherMetrics;
 }
@@ -252,6 +254,14 @@ export async function createContainer(): Promise<Container> {
     },
     getWatcherMetrics() {
       return loop.getMetrics();
+    },
+    async ready() {
+      try {
+        await client.execute("SELECT 1");
+        return true;
+      } catch {
+        return false;
+      }
     },
   };
 }
