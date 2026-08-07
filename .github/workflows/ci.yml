@@ -9,13 +9,13 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 9.15.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -43,26 +43,21 @@ jobs:
           API_URL: http://localhost:8787
           NEXT_TELEMETRY_DISABLED: "1"
 
+
+      - name: Dependency audit (fails on unallowlisted HIGH/CRITICAL)
+        run: |
+          set +e
+          pnpm audit --audit-level=high --json > audit.json
+          set -e
+          python3 .github/scripts/check-audit-allowlist.py audit.json .github/audit-allowlist.txt
+
   docker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build API image
         run: docker build -f apps/api/Dockerfile -t quay-api:ci .
-
-      - name: Record image size
-        run: |
-          SIZE_BYTES=$(docker image inspect quay-api:ci --format='{{.Size}}')
-          SIZE_MB=$((SIZE_BYTES / 1024 / 1024))
-          echo "quay-api image size: ${SIZE_MB} MB"
-          echo "### quay-api image size: ${SIZE_MB} MB" >> "$GITHUB_STEP_SUMMARY"
-          # Issue 8.4's own target - fail loudly (not silently) if we regress past it,
-          # rather than let image bloat creep in unnoticed.
-          if [ "$SIZE_MB" -gt 200 ]; then
-            echo "::error::quay-api image is ${SIZE_MB} MB, over the 200 MB target (issue 8.4)."
-            exit 1
-          fi
 
       # Non-root + read-only-filesystem-compatible are asserted here, not
       # just documented - a regression (e.g. someone re-adding a root-only
@@ -119,3 +114,36 @@ jobs:
             echo "::error::quay-api did not exit cleanly (0) after SIGTERM - got ${EXIT_CODE}."
             exit 1
           fi
+
+      # LAST on purpose. This used to run immediately after the build, and a
+      # size regression then short-circuited the job before the non-root
+      # assertion, the Trivy scan and the smoke test — the checks you most
+      # want to be loud were the first to go quiet. A byte count must never
+      # be able to hide a CVE.
+      - name: Record image size
+        run: |
+          SIZE_BYTES=$(docker image inspect quay-api:ci --format='{{.Size}}')
+          SIZE_MB=$((SIZE_BYTES / 1024 / 1024))
+          echo "quay-api image size: ${SIZE_MB} MB"
+          echo "### quay-api image size: ${SIZE_MB} MB" >> "$GITHUB_STEP_SUMMARY"
+          # Issue 8.4's own target - fail loudly (not silently) if we regress past it,
+          # rather than let image bloat creep in unnoticed.
+          if [ "$SIZE_MB" -gt 200 ]; then
+            echo "::error::quay-api image is ${SIZE_MB} MB, over the 200 MB target (issue 8.4)."
+            exit 1
+          fi
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # gitleaks scans full history, not just the current commit
+
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITLEAKS_CONFIG: .gitleaks.toml
+          # Required since gitleaks-action v2 for pull_request scans; without it
+          # the step errors before scanning anything.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

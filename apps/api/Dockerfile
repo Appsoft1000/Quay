@@ -22,6 +22,7 @@ COPY apps/api/package.json apps/api/package.json
 COPY packages/core/package.json packages/core/package.json
 COPY packages/stellar/package.json packages/stellar/package.json
 COPY packages/offramp/package.json packages/offramp/package.json
+COPY packages/soroban/package.json packages/soroban/package.json
 
 RUN pnpm install --frozen-lockfile --filter @checkout/api...
 
@@ -41,6 +42,7 @@ WORKDIR /app
 COPY packages/core packages/core
 COPY packages/stellar packages/stellar
 COPY packages/offramp packages/offramp
+COPY packages/soroban packages/soroban
 COPY apps/api apps/api
 
 WORKDIR /app/apps/api
@@ -60,8 +62,17 @@ COPY apps/api/package.json apps/api/package.json
 COPY packages/core/package.json packages/core/package.json
 COPY packages/stellar/package.json packages/stellar/package.json
 COPY packages/offramp/package.json packages/offramp/package.json
+COPY packages/soroban/package.json packages/soroban/package.json
 
-RUN pnpm install --prod --frozen-lockfile --filter @checkout/api...
+# pnpm's content-addressable store hardlinks into node_modules, but both live in
+# this layer, so the store is pure duplicated weight in the shipped image. It has
+# to be removed in the SAME `RUN` — a later layer cannot shrink an earlier one.
+# (The comment sits above the instruction rather than inside it: a `#` line
+# between `\` continuations is a well-known way to silently comment out the rest
+# of the command.)
+RUN pnpm install --prod --frozen-lockfile --filter @checkout/api... \
+ && pnpm store prune \
+ && rm -rf /root/.local/share/pnpm/store /root/.cache /root/.npm
 
 COPY --from=build /app/apps/api/dist /app/apps/api/dist
 

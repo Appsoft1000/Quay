@@ -50,10 +50,20 @@ Embed the lightweight modal checkout script tag in your HTML and attach it to an
 ```
 
 ### 2. Create a Link via API
+
+Both write endpoints require authentication. Mint an API key from the dashboard
+(**API keys → Create**, after signing in with your Stellar wallet) and send it
+as a bearer token — the plaintext key is shown once, at creation.
+
+Keys are scoped. The default set (`links:read`, `links:write`,
+`webhooks:manage`) covers everything in this quickstart; `offramp:initiate`
+moves money and must be requested explicitly.
+
 Generate a payment link from your backend server:
 
 ```bash
 curl -X POST https://quay-api.onrender.com/links \
+  -H "Authorization: Bearer ak_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
   -H "Content-Type: application/json" \
   -d '{
     "title": "T-shirt",
@@ -87,6 +97,7 @@ Register your endpoint to receive real-time JSON notifications when payments lan
 
 ```bash
 curl -X POST https://quay-api.onrender.com/webhooks \
+  -H "Authorization: Bearer ak_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
   -H "Content-Type: application/json" \
   -d '{ "url": "https://your-domain.com/api/webhooks/checkout" }'
 ```
@@ -182,6 +193,45 @@ pnpm test        # core unit tests
 pnpm build       # builds the web app
 pnpm sweep       # pre-entry ritual: uptime + synthetic checks against the live demo
 ```
+
+### Demo seed (pre-populated dashboard)
+
+Instead of starting from a blank screen, seed the dashboard with real on-chain testnet data
+in about a minute:
+
+```bash
+# With the API already running on http://localhost:8787:
+pnpm demo:seed
+```
+
+Prerequisite: `DEFAULT_SELLER_SECRET` in `.env` (matching the `DEFAULT_SELLER_WALLET` the API
+is running with). Since auth landed, every `/links` route is seller-authenticated, so the script
+logs in as the configured demo seller via SEP-10 and creates the links under that same seller —
+otherwise the dashboard you already know would have nothing to show.
+
+What it does:
+
+1. Generates a fresh buyer keypair and funds it via Friendbot (XLM) and the testanchor USDC
+   dispenser.
+2. Authenticates as the demo seller (SEP-10 challenge → session token).
+3. Creates several payment links via `POST /links` (flagged as demo data).
+4. Submits real Stellar testnet payments from the buyer to the seller wallet using each link's
+   memo so the on-chain watcher can match them.
+5. Waits for the watcher to mark the links **paid**, then triggers a cash-out on one so the
+   dashboard shows an `offramp_settled` row.
+
+Every seeded row is real on-chain testnet data — nothing is written directly to the database.
+Demo rows are labelled with a **demo** badge in the dashboard so they are easy to tell apart
+from links you create yourself.
+
+```bash
+# Remove all demo-flagged rows:
+pnpm demo:reset
+```
+
+`demo:reset` calls `POST /demo/reset` on the running API. It's testnet-only (returns 403 on
+the public network) and requires a seller session, so the script logs in as the same demo
+seller using `DEFAULT_SELLER_SECRET`.
 
 ---
 

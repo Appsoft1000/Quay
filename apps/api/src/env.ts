@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, statSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -13,7 +13,7 @@ function loadEnvFiles(): void {
     resolve(here, "../../../../.env"),
   ];
   for (const path of candidates) {
-    if (!existsSync(path)) continue;
+    if (!existsSync(path) || !statSync(path).isFile()) continue;
     const text = readFileSync(path, "utf8");
     for (const raw of text.split("\n")) {
       const line = raw.trim();
@@ -71,6 +71,8 @@ if (offramp !== "mock" && offramp !== "testanchor") {
 
 export const env = {
   network,
+  // JSON-line log verbosity. trace|debug|info|warn|error|fatal, default "info".
+  logLevel: process.env.LOG_LEVEL || "info",
   horizonUrl: process.env.HORIZON_URL || undefined,
   // Optional standby Horizon endpoint. The watcher switches to it after
   // several consecutive failures on the primary, and back on recovery.
@@ -87,6 +89,13 @@ export const env = {
   databaseAuthToken: process.env.DATABASE_AUTH_TOKEN || undefined,
   apiPort: Number(process.env.API_PORT ?? "8787"),
   pollMs: Number(process.env.WATCH_POLL_MS ?? "6000"),
+  // Per-account Horizon page size and the max pages drained per account per
+  // tick before the rest waits for the next poll (issue 2.2). Raising
+  // WATCH_MAX_PAGES_PER_TICK trades tick latency for backlog-drain speed;
+  // if it's routinely maxed out, that's the signal to move to a streaming
+  // watcher (issue 2.1), not to keep raising this.
+  watchPageLimit: Number(process.env.WATCH_PAGE_LIMIT ?? "200"),
+  watchMaxPagesPerTick: Number(process.env.WATCH_MAX_PAGES_PER_TICK ?? "10"),
   // "poll" (default, restart-safe MVP behavior) or "stream" (Horizon SSE,
   // opt-in until proven). See packages/stellar/src/streaming-horizon-watcher.ts.
   watchMode,
@@ -144,6 +153,17 @@ export const env = {
   watcherIdleBackoffTicks: Number(process.env.WATCHER_IDLE_BACKOFF_TICKS ?? "10"),
   watcherAggressivePollTicks: Number(process.env.WATCHER_AGGRESSIVE_POLL_TICKS ?? "5"),
   shutdownTimeoutMs: Number(process.env.SHUTDOWN_TIMEOUT_MS ?? "5000"),
+  // Deployed `quay-attest` contract id (see contracts/README.md). Unset means
+  // settlements are never attested on-chain and receipts simply say so —
+  // attestation is additive to the SEP settlement path, never a prerequisite.
+  attestationContractId: process.env.ATTESTATION_CONTRACT_ID || undefined,
+  // Soroban RPC used to write and read attestations. Defaults to the public
+  // testnet endpoint; must be set explicitly for pubnet.
+  sorobanRpcUrl:
+    process.env.SOROBAN_RPC_URL ||
+    (network === "public" ? undefined : "https://soroban-testnet.stellar.org"),
+  // How often the sweeper retries links that settled but were never attested.
+  attestationSweepMs: Number(process.env.ATTESTATION_SWEEP_MS ?? "60000"),
   // AES-256-GCM key (32 bytes, hex) for seller KYC field values at rest.
   // Required only when OFFRAMP=testanchor — mock mode never stores real PII.
   // Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"

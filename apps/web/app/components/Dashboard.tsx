@@ -10,7 +10,9 @@ import {
   type PaymentLink,
   type UsdcTrustlineStatus,
 } from "../../lib/api";
+import ApiKeys from "./ApiKeys";
 import KycPanel from "./KycPanel";
+import CashOutModal from "./CashOutModal";
 
 // Mirrors the API's OFFRAMP setting (see .env.example) so this button never
 // claims a real payout when the backend is still running MockAnchorOffRamp.
@@ -25,6 +27,18 @@ const CASH_OUT_LABEL = OFFRAMP_IS_MOCK
 function StatusPill({ status }: { status: string }) {
   const label = status.replace("offramp_", "off-ramp ").replace("_", " ");
   return <span className={`pill pill--${status}`}>{label}</span>;
+}
+
+function DemoBadge() {
+  return (
+    <span
+      className="pill"
+      style={{ background: "var(--surface-2, #f3f4f6)", color: "var(--text-2, #6b7280)", fontSize: "0.7rem" }}
+      title="Created by the demo seed script — real on-chain testnet data"
+    >
+      demo
+    </span>
+  );
 }
 
 function amountLabel(link: PaymentLink): string {
@@ -85,6 +99,50 @@ function ErrorBanner({
   );
 }
 
+/**
+ * Inline indicative rate badge shown next to a paid link (issue 3.5).
+ * Fetches once when the component mounts; clearly labelled "indicative" so
+ * the seller understands no firm quote has been consumed.
+ */
+function IndicativeRateBadge({ linkId }: { linkId: string }) {
+  const [price, setPrice] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getOfframpPreview(linkId, OFFRAMP_CURRENCY)
+      .then((preview) => {
+        if (cancelled) return;
+        const entry = preview.prices.find((p) => p.targetCurrency === OFFRAMP_CURRENCY);
+        setPrice(entry?.price ?? null);
+      })
+      .catch(() => {
+        // Non-fatal: the rate preview is best-effort.
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [linkId]);
+
+  if (loading) return <span className="muted" style={{ fontSize: "0.75rem" }}>rate…</span>;
+  if (!price) return null;
+
+  return (
+    <span
+      className="muted"
+      style={{ fontSize: "0.75rem" }}
+      title="Indicative rate from SEP-38 GET /prices — no firm quote consumed"
+    >
+      ~{Number(price).toLocaleString()} {OFFRAMP_CURRENCY}
+      <span style={{ marginLeft: 3, opacity: 0.6 }}>(indicative)</span>
+    </span>
+  );
+}
+
 interface TableProps {
   links: PaymentLink[];
   copied: string | null;
@@ -112,8 +170,17 @@ function LinksTable({ links, copied, onCopy, onCashOut, cashOutBlocked }: TableP
               <Link href={`/links/${link.id}`} className="dash-link-title">
                 {link.title}
               </Link>
+              {link.isDemo && <> <DemoBadge /></>}
             </td>
-            <td className="amt">{amountLabel(link)}</td>
+            <td className="amt">
+              {amountLabel(link)}
+              {/* Indicative rate shown inline for paid links — no firm quote burned */}
+              {link.status === "paid" && (
+                <div style={{ marginTop: 2 }}>
+                  <IndicativeRateBadge linkId={link.id} />
+                </div>
+              )}
+            </td>
             <td>
               <StatusPill status={link.status} />
             </td>
@@ -162,6 +229,10 @@ export default function Dashboard() {
   const [copied, setCopied] = useState<string | null>(null);
   const [trustline, setTrustline] = useState<UsdcTrustlineStatus | null>(null);
   const [kyc, setKyc] = useState<KycView | null>(null);
+  // Which link has the cash-out modal open; null = closed (issue #32).
+  const [cashOutLinkId, setCashOutLinkId] = useState<string | null>(null);
+
+  const [tab, setTab] = useState<"links" | "api-keys">("links");
 
   const refresh = useCallback(async () => {
     try {
@@ -252,22 +323,27 @@ export default function Dashboard() {
     setTimeout(() => setCopied((c) => (c === id ? null : c)), 1500);
   }
 
-  async function cashOut(id: string) {
-    setActionError(null);
-    try {
-      await api.cashOut(id, OFFRAMP_CURRENCY);
-      await refresh();
-    } catch (e) {
-      if (e instanceof CheckoutError && e.code === "kyc_required") {
-        setActionError(describeError(e));
-        void refreshKyc();
-        return;
-      }
-      setActionError(
-        e instanceof CheckoutError ? describeError(e) : "Cash-out failed. Please try again.",
-      );
-    }
+  async function copyWidgetHtml(link: PaymentLink) {
+    const host = window.location.origin;
+    const snippet = `<script src="${host}/widget.js" defer></script>\n<button data-quay-link="${link.id}" data-quay-label="Pay ${link.amount} ${link.asset.code}">Pay</button>`;
+    await navigator.clipboard.writeText(snippet);
+    setCopied(`widget_${link.id}`);
+    setTimeout(() => setCopied((c) => (c === `widget_${link.id}` ? null : c)), 1500);
   }
+
+  /**
+   * Cash-out flow (issue #32): the button opens CashOutModal, which fetches the
+   * anchor's field descriptors + the seller's masked saved payout fields, then
+   * submits through `api.cashOut`. On success the modal closes and we refresh
+   * so the link's status flips to off-ramp pending.
+   */
+  function handleCashOutSuccess() {
+    setCashOutLinkId(null);
+    void refresh();
+  }
+
+  // The link the modal is operating on; null when closed.
+  const cashOutLink = cashOutLinkId ? (links.find((l) => l.id === cashOutLinkId) ?? null) : null;
 
   const [csvFrom, setCsvFrom] = useState("");
   const [csvTo, setCsvTo] = useState("");
@@ -299,6 +375,41 @@ export default function Dashboard() {
 
   return (
     <>
+      <nav
+        aria-label="Dashboard sections"
+        style={{
+          display: "flex",
+          gap: 4,
+          marginBottom: 20,
+          borderBottom: "1px solid var(--clr-border, #2a3448)",
+        }}
+      >
+        {(["links", "api-keys"] as const).map((t) => (
+          <button
+            key={t}
+            role="tab"
+            aria-selected={tab === t}
+            onClick={() => setTab(t)}
+            style={{
+              background: "none",
+              border: "none",
+              borderBottom: tab === t ? "2px solid var(--clr-accent, #6c8ebf)" : "2px solid transparent",
+              color: tab === t ? "var(--clr-text, #e0e6f0)" : "var(--clr-muted, #7a8aaa)",
+              cursor: "pointer",
+              fontSize: "0.9em",
+              fontWeight: tab === t ? 600 : 400,
+              padding: "8px 14px",
+              marginBottom: -1,
+              transition: "color 0.15s",
+            }}
+          >
+            {t === "links" ? "Payment links" : "API keys"}
+          </button>
+        ))}
+      </nav>
+
+      {tab === "links" && (
+        <>
       {trustline && !trustline.ok && (
         <div className="banner banner--warn">
           <strong>Your wallet can&apos;t receive USDC right now.</strong>{" "}
@@ -374,7 +485,7 @@ export default function Dashboard() {
                 links={links}
                 copied={copied}
                 onCopy={copyCheckout}
-                onCashOut={cashOut}
+                onCashOut={(id) => setCashOutLinkId(id)}
                 cashOutBlocked={cashOutBlocked}
               />
             </div>
@@ -390,7 +501,7 @@ export default function Dashboard() {
             links={links}
             copied={copied}
             onCopy={copyCheckout}
-            onCashOut={cashOut}
+            onCashOut={(id) => setCashOutLinkId(id)}
             cashOutBlocked={cashOutBlocked}
           />
         )}
@@ -425,6 +536,23 @@ export default function Dashboard() {
           </button>
         </div>
       </section>
+
+      {/* Cash-out modal — rendered when a link's "Cash out" button is clicked */}
+      {cashOutLinkId && cashOutLink && (
+        <CashOutModal
+          linkId={cashOutLinkId}
+          linkAmount={cashOutLink.paidAmount ?? cashOutLink.amount}
+          assetCode={cashOutLink.asset.code}
+          targetCurrency={OFFRAMP_CURRENCY}
+          isMock={OFFRAMP_IS_MOCK}
+          onClose={() => setCashOutLinkId(null)}
+          onSuccess={handleCashOutSuccess}
+        />
+      )}
+        </>
+      )}
+
+      {tab === "api-keys" && <ApiKeys />}
     </>
   );
 }

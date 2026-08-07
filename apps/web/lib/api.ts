@@ -1,10 +1,23 @@
-import type { KycFieldSpec, KycStatus, PaymentLink, PaymentRequest } from "@checkout/core";
+import type { KycFieldSpec, KycStatus, PaymentLink, PaymentRequest, PayoutFieldDescriptor } from "@checkout/core";
 
-export type { PaymentLink, PaymentRequest };
+export type { PaymentLink, PaymentRequest, PayoutFieldDescriptor };
 
 export interface LinkWithRequest {
   link: PaymentLink;
   request: PaymentRequest;
+}
+
+/** Anchor field descriptors + the seller's previously-saved (masked) payout
+ *  fields for the cash-out form (issue #32). */
+export interface OfframpRequirements {
+  /** Anchor's field descriptors — drives the dynamic form. */
+  descriptors: PayoutFieldDescriptor[];
+  /**
+   * Previously-saved values, masked to last 4 chars server-side. Null on first
+   * cash-out. The form uses these to show "already on file" and skips fields
+   * the seller leaves blank (meaning "reuse saved value").
+   */
+  savedFields: Record<string, string> | null;
 }
 
 /** A webhook delivery record for timeline display. */
@@ -36,6 +49,19 @@ export interface PublicReceipt {
   paidAmount: string | null;
   createdAt: number;
   updatedAt: number;
+  /**
+   * On-chain settlement attestation, or null when this payment has not been
+   * attested. `refHash` is what the registry is keyed by — the reference itself
+   * is never written on-chain — so it is the value a holder looks up to check
+   * this receipt without trusting whoever served it.
+   */
+  attestation: {
+    contractId: string;
+    refHash: string;
+    txHash: string | null;
+    ledger: number | null;
+    attestedAt: number;
+  } | null;
 }
 
 export interface KycView {
@@ -126,7 +152,7 @@ export function describeError(err: CheckoutError): string {
 /**
  * Thin fetch wrapper.
  *
- * - 2xx → parse JSON and return `T`
+ * - 2xx → parse JSON and return `T` (204 → `undefined`, e.g. DELETE /webhooks/:id)
  * - 4xx/5xx → extract `{ error: string }` envelope and throw `CheckoutError`
  * - Network failure → throw `CheckoutError` with code `"unreachable"`
  */
@@ -177,6 +203,7 @@ async function http<T>(path: string, init?: RequestInit & { idempotencyKey?: str
     throw new CheckoutError(code, res.status, detail, missingFields, details);
   }
 
+  if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
 
@@ -190,6 +217,19 @@ function parseJsonObject(raw: string): Record<string, unknown> | null {
   }
 }
 
+/** One anchor-advertised indicative price (issue 3.5). Never a firm quote. */
+export interface IndicativePrice {
+  targetCurrency: string;
+  price: string;
+  deliveryMethods: string[];
+}
+
+export interface OfframpPreview {
+  indicative: true;
+  prices: IndicativePrice[];
+  sourceAmount: string;
+}
+
 export interface CreateLinkInput {
   title: string;
   amount: string;
@@ -197,9 +237,48 @@ export interface CreateLinkInput {
   expiresInMinutes?: number;
 }
 
+export interface WebhookDelivery {
+  id: string;
+  webhookId: string;
+  linkId: string;
+  event: string;
+  statusCode: number | null;
+  ok: boolean;
+  error: string | null;
+  createdAt: number;
+}
+
+export interface Webhook {
+  id: string;
+  url: string;
+  secretLast4: string;
+  previousSecretLast4: string | null;
+  previousSecretExpiresAt: number | null;
+  deletedAt: number | null;
+  createdAt: number;
+}
+
 export interface AuthChallenge {
   transaction: string;
   network_passphrase: string;
+}
+
+export interface ApiKeyInfo {
+  id: string;
+  name: string;
+  prefix: string;
+  scopes: string[];
+  lastUsedAt: number | null;
+  createdAt: number;
+  revokedAt: number | null;
+}
+
+export interface ApiKeyCreated {
+  id: string;
+  name: string;
+  key: string;
+  scopes: string[];
+  env: "live" | "test";
 }
 
 export type UsdcTrustlineStatus =
@@ -221,11 +300,31 @@ export const api = {
 
   getLink: (id: string) => http<LinkWithRequest>(`/links/${id}`),
 
+  /** Anchor field descriptors + masked saved payout fields for the cash-out form (issue #32). */
+  getOfframpRequirements: (id: string) => http<OfframpRequirements>(`/links/${id}/offramp-requirements`),
+
   getDetail: (id: string) => http<LinkDetail>(`/links/${id}/detail`),
 
   getReceipt: (reference: string) => http<PublicReceipt>(`/r/${reference}`),
 
+  /** Indicative SEP-38 prices for a paid link — no firm quote is consumed. */
+  getOfframpPreview: (id: string, currency?: string) =>
+    http<OfframpPreview>(
+      `/links/${id}/offramp-preview${currency ? `?currency=${encodeURIComponent(currency)}` : ""}`,
+    ),
+
   health: () => http<HealthResponse>("/health"),
+
+  quoteCashOut: (id: string, targetCurrency: string) =>
+    http<{
+      quoteId: string;
+      sourceAmount: string;
+      targetCurrency: string;
+      targetAmount: string; // Gross
+      rate: string;
+      fee: { amount: string; currency: string; source: string };
+      netTargetAmount: string; // Net
+    }>(`/links/${id}/cash-out/quote?targetCurrency=${targetCurrency}`),
 
   cashOut: (
     id: string,
@@ -262,4 +361,39 @@ export const api = {
 
   submitKyc: (fields: Record<string, string>) =>
     http<KycView>("/seller/kyc", { method: "PUT", body: JSON.stringify(fields) }),
+
+  listWebhooks: () => http<{ webhooks: Webhook[] }>("/webhooks"),
+
+  createWebhook: (url: string) =>
+    http<Webhook & { secret: string }>("/webhooks", { method: "POST", body: JSON.stringify({ url }) }),
+
+  deleteWebhook: (id: string) => http<void>(`/webhooks/${id}`, { method: "DELETE" }),
+
+  rotateWebhookSecret: (id: string) =>
+    http<Webhook & { secret: string }>(`/webhooks/${id}/rotate-secret`, { method: "POST" }),
+
+  listWebhookDeliveries: (id: string, opts: { limit?: number; cursor?: string | null } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.limit) params.set("limit", String(opts.limit));
+    if (opts.cursor) params.set("cursor", opts.cursor);
+    const qs = params.toString();
+    return http<{ deliveries: WebhookDelivery[]; nextCursor: string | null }>(
+      `/webhooks/${id}/deliveries${qs ? `?${qs}` : ""}`,
+    );
+  },
+
+  // ── API Keys (issue #40) ───────────────────────────────────────────────
+
+  listApiKeys: () =>
+    http<{
+      keys: ApiKeyInfo[];
+      availableScopes: string[];
+      defaultScopes: string[];
+    }>("/api-keys"),
+
+  createApiKey: (input: { name: string; env?: "live" | "test"; scopes?: string }) =>
+    http<ApiKeyCreated>("/api-keys", { method: "POST", body: JSON.stringify(input) }),
+
+  revokeApiKey: (id: string) =>
+    http<{ id: string; revokedAt: number }>(`/api-keys/${id}`, { method: "DELETE" }),
 };

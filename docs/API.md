@@ -72,9 +72,20 @@ touching logs.
   "network": "testnet",
   "sellerWallet": "G...",
   "usdcTrustline": { "ok": true },
-  "horizon": { "degraded": false, "usingFallback": false, "consecutiveFailures": 0 }
+  "horizon": { "degraded": false, "usingFallback": false, "consecutiveFailures": 0 },
+  "attestation": {
+    "enabled": true,
+    "contractId": "CD6AFLZTNUKC6CWXWLAVOEH3FY4ZN47SVX6DPYQBZBTPBBSN6LEFIFZ3"
+  }
 }
 ```
+`attestation` reports whether this instance is writing settlement attestations
+on-chain, and to which registry. It is published because "the contract is
+deployed" and "the running product actually calls it" are different claims, and
+only the second is worth anything to someone deciding whether to trust a
+receipt. `enabled: false` (with `contractId: null`) is the honest answer when
+`ATTESTATION_CONTRACT_ID` is unset — settlement is unaffected either way.
+
 `ok` is pure liveness (the process is up) — check `horizon.degraded` for whether
 the ledger watcher is actually keeping up. Every Horizon call (`packages/stellar`)
 goes through a retry policy first — 3 attempts, exponential backoff with full
@@ -357,6 +368,78 @@ belongs to a different seller.
 
 ---
 
+## `GET /r/:reference`
+
+**Public — no auth.** The buyer-facing receipt, keyed by the payment reference
+(the same value carried in the Stellar memo). Deliberately narrow: it returns
+only what is safe to hand a stranger holding the link. It never includes
+`sellerId`, `isDemo`, or any of the off-ramp economics (`offrampRate`,
+`offrampFeeAmount`, `offrampNetTargetAmount`) — a buyer must not learn the
+seller's realized FX rate or anchor fees.
+
+Only settled links resolve. An `active`, `expired` or `cancelled` link returns
+`404`: an unpaid link is not a receipt.
+
+**200**
+```json
+{
+  "reference": "pl_0eipnodm7s2o",
+  "title": "Order #1042",
+  "amount": "3",
+  "asset": { "code": "XLM", "issuer": null },
+  "status": "paid",
+  "txHash": "b166269ace8a96efe...",
+  "payer": "G...",
+  "paidAmount": "3",
+  "createdAt": 1786094880000,
+  "updatedAt": 1786094898582,
+  "attestation": {
+    "contractId": "CD6AFLZTNUKC6CWXWLAVOEH3FY4ZN47SVX6DPYQBZBTPBBSN6LEFIFZ3",
+    "refHash": "cdd4838dc2edbe2721bb609126eb230a53a1cc3e3e8a706cd96c0f41d7d7498f",
+    "txHash": "7b62b57563d31f35d5f7cc27f115061a6890d20f342b5ccf09d3ca18276e6874",
+    "ledger": 4014880,
+    "attestedAt": 1786094898582
+  }
+}
+```
+
+### Verifying a receipt without trusting this API
+
+`attestation` is the point of the endpoint. Quay saying a link is `paid` is a
+claim about its own database; the attestation is the same fact recorded in a
+Soroban registry Quay cannot rewrite, so the receipt can be checked against the
+ledger instead of against us.
+
+- `refHash` is `sha256(reference)` and is **what the registry is keyed by** —
+  the reference itself is never written on-chain, because it is effectively an
+  invoice id and publishing them would leak a seller's invoice volume and
+  sequence to any observer. Recompute it yourself from `reference`; you do not
+  have to take this field's word for it either.
+- `txHash` is the transaction that *wrote the attestation*, not the payment.
+  The payment's own hash is the top-level `txHash`. They are two facts on two
+  different ledgers. It is `null` (with `ledger: null`) when the attestation was
+  found already present rather than written by this instance — the registry
+  stores the fact, not the invocation that carried it.
+- `attestation` is `null` when the payment has not been attested. That is not an
+  error: settlement is proven by the classic ledger regardless, and a missing
+  block is the honest display rather than a claim of verifiability that isn't
+  there.
+
+```bash
+REF=pl_0eipnodm7s2o
+REFHASH=$(node -e "console.log(require('crypto').createHash('sha256').update('$REF').digest('hex'))")
+
+stellar contract invoke \
+  --id CD6AFLZTNUKC6CWXWLAVOEH3FY4ZN47SVX6DPYQBZBTPBBSN6LEFIFZ3 \
+  --source <any-funded-account> --network testnet --send=no \
+  -- verify --ref_hash $REFHASH
+```
+
+**404** — `{ "error": "not_found" }`: unknown reference, or the link is not
+settled.
+
+---
+
 ## `POST /links/:id/cash-out`
 
 **Requires auth** (403 if the link belongs to a different seller). Seller-initiated off-ramp of a **paid** link to local currency. Runs
@@ -445,6 +528,9 @@ naming exactly which ones, never silently substituting a placeholder.
 
 ## `POST /webhooks`
 
+Register a webhook endpoint. The signing secret is returned **once** — store it.
+It's encrypted at rest (not stored in plaintext); the API can never show it to you
+again after this response, only a display-only `secretLast4`.
 **Requires auth.** Register a webhook endpoint for the authenticated seller.
 The signing secret is returned **once** — store it.
 
@@ -455,20 +541,91 @@ The signing secret is returned **once** — store it.
 
 **201**
 ```json
-{ "id": "...", "url": "https://example.com/hooks/checkout", "secret": "<hex>" }
+{ "id": "...", "url": "https://example.com/hooks/checkout", "secretLast4": "a1b2", "secret": "<hex>" }
 ```
 
 ---
 
 ## `GET /webhooks`
 
+List registered webhooks. Secrets are **not** returned — only `secretLast4` for
+display. Deleted webhooks are excluded.
 **Requires auth.** Lists the authenticated seller's registered webhooks.
 Secrets are **not** returned.
 
 **200**
 ```json
-{ "webhooks": [ { "id": "...", "url": "...", "createdAt": 1750000000000 } ] }
+{
+  "webhooks": [
+    {
+      "id": "...",
+      "url": "...",
+      "secretLast4": "a1b2",
+      "previousSecretLast4": null,
+      "previousSecretExpiresAt": null,
+      "deletedAt": null,
+      "createdAt": 1750000000000
+    }
+  ]
+}
 ```
+
+---
+
+## `DELETE /webhooks/:id`
+
+Removes a webhook (soft delete — it stops receiving events immediately, but its
+delivery history remains readable via `GET /webhooks/:id/deliveries`).
+
+**204** — no body.
+**404** — `{ "error": "not_found" }` if the id doesn't exist or isn't yours.
+
+---
+
+## `POST /webhooks/:id/rotate-secret`
+
+Issues a new signing secret, returned **once** just like at creation. The
+previous secret keeps signing deliveries for **24 hours** after rotation (see
+"Webhook delivery" below), so you can redeploy your receiver with the new
+secret without dropping any events in between.
+
+**200**
+```json
+{ "id": "...", "url": "...", "secretLast4": "c3d4", "secret": "<hex>" }
+```
+
+**404** — `{ "error": "not_found" }`
+
+---
+
+## `GET /webhooks/:id/deliveries?limit=&cursor=`
+
+Paginated delivery history for one webhook, newest first. Works even after the
+webhook has been deleted. `limit` defaults to 20, max 100.
+
+**200**
+```json
+{
+  "deliveries": [
+    {
+      "id": "whd_...",
+      "webhookId": "whk_...",
+      "linkId": "lnk_...",
+      "event": "link.paid",
+      "statusCode": 200,
+      "ok": true,
+      "error": null,
+      "createdAt": 1750000000000
+    }
+  ],
+  "nextCursor": "b3RoZXI"
+}
+```
+
+Pass `nextCursor` back as `?cursor=` to fetch the next page; `null` means there
+are no more results.
+
+**404** — `{ "error": "not_found" }` if the id doesn't exist or isn't yours.
 
 ---
 
@@ -504,8 +661,11 @@ When a link changes state, the API POSTs a JSON event to each registered URL:
 
 **Headers**
 - `x-checkout-event` — the event name.
-- `x-checkout-signature` — `sha256=<hex>`, an HMAC-SHA256 of the **exact raw body**
-  using your webhook secret.
+- `x-checkout-signature` — one or more `sha256=<hex>` HMAC-SHA256 signatures of
+  the **exact raw body**, comma-separated. Normally just one, signed with your
+  current secret. For 24h after a secret rotation, **two** are sent (current +
+  previous secret) — accept the delivery if *any* listed signature matches, so
+  you can redeploy without dropping events.
 
 Delivery is retried with exponential backoff (default 4 attempts) on transient
 failures — network errors and `5xx`/`429` responses. A `4xx` (other than `429`) is
@@ -515,15 +675,17 @@ For **replay protection**, reject events whose in-body `sentAt` is older than a
 small window (e.g. 5 minutes). `sentAt` is part of the signed body, so it cannot be
 forged without the secret.
 
-**Verifying** (recompute over the raw body and compare in constant time):
+**Verifying** (recompute over the raw body, accept if any signature matches):
 
 ```js
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 function verify(rawBody, header, secret) {
-  const expected = "sha256=" + createHmac("sha256", secret).update(rawBody).digest("hex");
-  const a = Buffer.from(header);
-  const b = Buffer.from(expected);
-  return a.length === b.length && timingSafeEqual(a, b);
+  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+  return header.split(",").some((part) => {
+    const a = Buffer.from(part.trim());
+    const b = Buffer.from(`sha256=${expected}`);
+    return a.length === b.length && timingSafeEqual(a, b);
+  });
 }
 ```

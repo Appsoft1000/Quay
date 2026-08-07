@@ -11,9 +11,9 @@ import {
 } from "@checkout/core";
 import type { StellarConfig } from "@checkout/stellar";
 import { HttpError, LinkService } from "../src/services/link-service";
-import { AlwaysAcceptedKyc, FakeOffRampStateRepository } from "./fakes";
+import { AlwaysAcceptedKyc, FakeOffRampStateRepository, FakeTelemetryRepository } from "./fakes";
 
-const seller: Seller = { id: "sel_1", name: "Demo Seller", wallet: "GSELLERWALLETADDRESS", createdAt: Date.now() };
+const seller: Seller = { id: "sel_1", name: "Demo Seller", wallet: "GSELLERWALLETADDRESS", payoutFields: null, createdAt: Date.now() };
 
 const stellar: StellarConfig = {
   network: "testnet",
@@ -24,7 +24,7 @@ const stellar: StellarConfig = {
 
 function fakeLinks(): LinkRepository {
   return {
-    create: vi.fn(async (input) => ({ ...input, status: "active", txHash: null, payer: null, paidAmount: null, offrampJobId: null, offrampTargetCurrency: null, offrampStatus: null, createdAt: Date.now(), updatedAt: Date.now() }) as PaymentLink),
+    create: vi.fn(async (input) => ({ ...input, status: "active", txHash: null, payer: null, paidAmount: null, overpaidAmount: null, offrampJobId: null, offrampTargetCurrency: null, offrampStatus: null, createdAt: Date.now(), updatedAt: Date.now() }) as PaymentLink),
     findById: vi.fn(async () => null),
     findByReference: vi.fn(async () => null),
     listBySeller: vi.fn(async () => []),
@@ -32,6 +32,10 @@ function fakeLinks(): LinkRepository {
     activeDestinations: vi.fn(async () => []),
     openLinksForDestination: vi.fn(async () => []),
     save: vi.fn(async () => {}),
+    recordPayment: vi.fn(async () => {}),
+    sumPaymentsForLink: vi.fn(async () => "0"),
+    paymentLedger: vi.fn(async () => null),
+    listUnattested: vi.fn(async () => []),
   };
 }
 
@@ -41,6 +45,7 @@ function fakeSellers(): SellerRepository {
     findById: vi.fn(async () => seller),
     findByWallet: vi.fn(async () => seller),
     createIfAbsent: vi.fn(async () => seller),
+    savePayoutFields: vi.fn(async () => {}),
   };
 }
 
@@ -48,6 +53,10 @@ function fakeWebhooks(): WebhookRepository {
   return {
     create: vi.fn(async (input) => ({ id: "whk_1", ...input, createdAt: Date.now() })),
     listBySeller: vi.fn(async () => []),
+    getById: vi.fn(async () => null),
+    rotateSecret: vi.fn(async () => null),
+    softDelete: vi.fn(async () => false),
+    listDeliveries: vi.fn(async () => ({ deliveries: [], nextCursor: null })),
     listDeliveriesByLinkId: vi.fn(async () => []),
     recordDelivery: vi.fn(async () => {}),
   };
@@ -73,6 +82,7 @@ function fakeOfframp(): OffRampPort {
     quote: vi.fn(),
     initiate: vi.fn(),
     status: vi.fn(),
+    offrampRequirements: vi.fn(async () => []),
   };
 }
 
@@ -86,7 +96,9 @@ function makeService(links: LinkRepository, rail: RailPort): LinkService {
     offrampState: new FakeOffRampStateRepository(),
     kyc: new AlwaysAcceptedKyc(),
     stellar,
+    telemetry: new FakeTelemetryRepository(),
     correlation: "memo",
+    webhookGuard: async () => ({ ok: true }) as const,
   });
 }
 
