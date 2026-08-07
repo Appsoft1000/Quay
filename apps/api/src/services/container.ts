@@ -57,6 +57,10 @@ export interface Container {
    *  one so route tests do not depend on live DNS. */
   webhookGuard?: (url: string) => Promise<{ ok: true } | { ok: false; reason: string }>;
   metricsToken: string;
+  /** Whether settlements are being attested on-chain, and to which registry.
+   *  Surfaced on /health so "the contract is deployed" and "the product calls
+   *  it" can be told apart from outside, without an account or a log tail. */
+  attestation: { enabled: boolean; contractId: string | null };
   watcherLagSeconds(): number;
   circuitBreakerState(): number;
   auth: {
@@ -208,6 +212,7 @@ export async function createContainer(): Promise<Container> {
     config: { network: stellar.network, horizonUrl: stellar.horizonUrl, sellerWallet },
     horizonStatus: () => pollingWatcher.getStatus(),
     metricsToken,
+    attestation: { enabled: attestation !== undefined, contractId: attestation?.contractId ?? null },
     watcherLagSeconds: () => loop.getLagSeconds(),
     circuitBreakerState: () => offramp.getStateNumeric(),
     auth: { challenge, session, stellarToml, revocations: revocationsRepo, secureCookie: env.cookieSecure },
@@ -287,7 +292,16 @@ function createAttestation(
   networkPassphrase: string,
   logger: Logger,
 ): SorobanAttestation | undefined {
-  if (!env.attestationContractId) return undefined;
+  if (!env.attestationContractId) {
+    // Say so. A silent undefined here means the deployed API takes payments and
+    // attests nothing, and the only outward sign is a receipt quietly missing a
+    // block nobody was watching for.
+    logger.warn(
+      { event: "attestation.disabled", reason: "no_contract_id" },
+      "ATTESTATION_CONTRACT_ID is not set — settlements will not be attested on-chain",
+    );
+    return undefined;
+  }
   if (!env.sorobanRpcUrl) {
     logger.warn(
       { event: "attestation.disabled", reason: "no_rpc_url" },

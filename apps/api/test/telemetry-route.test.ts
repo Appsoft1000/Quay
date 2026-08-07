@@ -19,6 +19,7 @@ function fakeContainer(): Container {
     auth: {} as Container["auth"],
     horizonStatus: () => ({ degraded: false, usingFallback: false, consecutiveFailures: 0 }),
     metricsToken: "test-metrics-token",
+    attestation: { enabled: false, contractId: null },
     watcherLagSeconds: () => 0,
     circuitBreakerState: () => 0,
     getWatcherCircuitBreakerStatus: () => [],
