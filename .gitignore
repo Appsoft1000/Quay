@@ -13,3 +13,6 @@ PR.md
 coverage
 test-results
 .vercel
+
+# Rust / Soroban build output
+contracts/target
