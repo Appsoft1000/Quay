@@ -72,7 +72,18 @@ COPY packages/soroban/package.json packages/soroban/package.json
 # of the command.)
 RUN pnpm install --prod --frozen-lockfile --filter @checkout/api... \
  && pnpm store prune \
- && rm -rf /root/.local/share/pnpm/store /root/.cache /root/.npm
+ && rm -rf /root/.local/share/pnpm/store /root/.cache /root/.npm \
+ # The image runs `node dist/index.js` and never a package manager, but the
+ # base image ships npm — and npm's own bundled dependencies (tar, sigstore,
+ # …) were the source of every CVE Trivy flagged here, including the one
+ # CRITICAL. Nothing installs anything at run time, so the package managers
+ # are pure attack surface once the install above has finished. Removing them
+ # also takes a large bite out of the image size.
+ && rm -rf /usr/local/lib/node_modules/npm \
+           /usr/local/bin/npm /usr/local/bin/npx \
+           /usr/local/lib/node_modules/corepack \
+           /usr/local/bin/corepack /usr/local/bin/pnpm /usr/local/bin/pnpx \
+           /usr/local/bin/yarn /usr/local/bin/yarnpkg
 
 COPY --from=build /app/apps/api/dist /app/apps/api/dist
 
