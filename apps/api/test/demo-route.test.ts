@@ -6,7 +6,7 @@ import { demoRoutes } from "../src/routes/demo";
 
 const seller: Seller = { id: "sel_1", name: "Demo Seller", wallet: "GSELLER", payoutFields: null, createdAt: Date.now() };
 
-function fakeContainer(deleteDemo: () => Promise<number>): Container {
+function fakeContainer(deleteDemo: (sellerId?: string) => Promise<number>): Container {
   const sellers: SellerRepository = {
     getDefault: async () => seller,
     findById: async (id) => (id === seller.id ? seller : null),
@@ -79,5 +79,31 @@ describe("demoRoutes", () => {
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, deleted: 5 });
+  });
+
+  // Regression, BUG-4.12. requireSeller only proves the caller is *a* seller,
+  // and SEP-10 registration is open — any keypair holder can get a session. The
+  // reset used to call deleteDemo() with no argument, wiping every seller's
+  // demo rows including the seeded ones the README sends visitors to.
+  it("scopes the delete to the calling seller, not every seller", async () => {
+    const seen: (string | undefined)[] = [];
+    const container = fakeContainer(async (sellerId) => {
+      seen.push(sellerId);
+      return 2;
+    });
+    const app = demoRoutes(container);
+    const { token } = await container.auth.session.issue({
+      sub: seller.wallet,
+      sellerId: seller.id,
+    });
+
+    const res = await app.request("/reset", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(200);
+    expect(seen).toEqual([seller.id]);
+    expect(seen[0]).not.toBeUndefined();
   });
 });

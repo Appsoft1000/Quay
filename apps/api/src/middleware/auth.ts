@@ -194,11 +194,33 @@ export function requireScope(scope: ApiKeyScope): MiddlewareHandler<{ Variables:
 /**
  * Rate-limit key that is per-API-key for `Bearer ak_…` callers (bucketed by the
  * key's lookup prefix — issue #40 item 4) and per-client-IP for everyone else.
- * Mount via `rateLimit({ keyFor: apiKeyRateLimitKey })` on routes a key can hit.
+ * Mount via `rateLimit({ keyFor: apiKeyRateLimitKey(repo) })` on routes a key
+ * can hit.
+ *
+ * Security: the prefix is only trusted as a bucket once it is known to match a
+ * live key. `looksLikeApiKey` is a string test on caller-supplied input, so
+ * bucketing on it alone let anyone mint a fresh bucket per request just by
+ * varying the characters after `ak_live_` — which defeated the strict limiter
+ * entirely on the routes it exists to protect (link creation, cash-out, key
+ * management). Unrecognised prefixes fall back to the client IP.
+ *
+ * The lookup is the same indexed, scrypt-free pre-filter `resolveApiKey` runs
+ * (`findAllActiveByPrefix`), so this does not add a key-derivation cost to the
+ * hot path; a forged random prefix simply returns no candidates.
  */
-export function apiKeyRateLimitKey(ctx: Context, trustProxyHops: number): string {
-  const header = ctx.req.header("authorization");
-  const bearer = header?.match(/^Bearer\s+(.+)$/i)?.[1];
-  if (bearer && looksLikeApiKey(bearer)) return `api-key:${bearer.slice(0, KEY_PREFIX_LEN)}`;
-  return `ip:${clientIp(ctx, trustProxyHops)}`;
+export function apiKeyRateLimitKey(
+  repo: Pick<DrizzleApiKeyRepository, "findAllActiveByPrefix">,
+): (ctx: Context, trustProxyHops: number) => Promise<string> {
+  return async (ctx, trustProxyHops) => {
+    const header = ctx.req.header("authorization");
+    const bearer = header?.match(/^Bearer\s+(.+)$/i)?.[1];
+    if (bearer && looksLikeApiKey(bearer)) {
+      const prefix = bearer.slice(0, KEY_PREFIX_LEN);
+      // A DB blip must not hand out an unmetered request; fall through to the
+      // IP bucket rather than trusting the prefix.
+      const candidates = await repo.findAllActiveByPrefix(prefix).catch(() => []);
+      if (candidates.length > 0) return `api-key:${prefix}`;
+    }
+    return `ip:${clientIp(ctx, trustProxyHops)}`;
+  };
 }

@@ -178,6 +178,32 @@ describe("GET /links/:id", () => {
     const body = await res.json() as Record<string, unknown>;
     expect(body.error).toBe("not_found");
   });
+
+  // Regression, BUG-4.15. This route is public — the link id is the bearer
+  // capability — and it used to return the stored row verbatim, so anyone with
+  // a link id could read the seller's realized FX rate, the indicative-vs-firm
+  // spread and the anchor fees, plus the internal sellerId.
+  it("does not leak seller identity or off-ramp economics to an unauthenticated caller", async () => {
+    const createRes = await req("/links", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Projection", amount: "12.34" }),
+    });
+    const created = await createRes.json() as Record<string, unknown>;
+    const linkId = (created.link as Record<string, unknown>).id as string;
+
+    const res = await req(`/links/${linkId}`);
+    const body = await res.json() as { link: Record<string, unknown> };
+    const keys = Object.keys(body.link);
+
+    expect(keys).not.toContain("sellerId");
+    expect(keys.filter((k) => k.startsWith("offramp"))).toEqual([]);
+
+    // Still carries everything the checkout page and widget render.
+    for (const needed of ["id", "reference", "destination", "title", "amount", "asset", "status", "txHash", "paidAmount", "expiresAt"]) {
+      expect(keys, `missing ${needed}`).toContain(needed);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

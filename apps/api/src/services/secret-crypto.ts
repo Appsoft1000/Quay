@@ -57,6 +57,18 @@ function resolveKey(): Buffer {
   return cachedKey;
 }
 
+/**
+ * Force key resolution at a time of the caller's choosing.
+ *
+ * `resolveKey` is otherwise lazy — first reached when a seller registers a
+ * webhook — so a production deploy missing WEBHOOK_SECRET_ENCRYPTION_KEY boots
+ * green and only fails on a customer's request. `createContainer` calls this at
+ * boot so the deploy itself fails instead.
+ */
+export function assertKeyConfigured(): void {
+  resolveKey();
+}
+
 export function encryptSecret(plaintext: string): string {
   const key = resolveKey();
   const iv = randomBytes(IV_LENGTH);
