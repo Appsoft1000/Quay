@@ -87,6 +87,27 @@ The attester identity used by the API is its SEP-10 signing keypair
 fees. An unfunded attester makes attestation fail; it does not affect
 settlement, which never blocks on this contract.
 
+## How the API uses it
+
+Wired in issue 9.2. The path, end to end:
+
+1. The watcher matches a payment and `LinkService.applyMatch` moves the link to
+   `paid` and persists it.
+2. **After** that, `attestSettlement` is fired without being awaited. A slow,
+   down, or unfunded registry costs the watcher tick nothing — the payment
+   settled on the classic ledger, and no failure here may call that into
+   question.
+3. On success the contract id, transaction, ledger and timestamp are written to
+   four nullable columns on `links`, and `GET /r/:reference` publishes them
+   alongside `refHash` so a holder can look the receipt up themselves.
+4. `startAttestationSweeper` retries anything still unattested every
+   `ATTESTATION_SWEEP_MS`. A duplicate write returns `AlreadyAttested`, which
+   the adapter treats as success — so the retry converges instead of thrashing.
+
+Configure with `ATTESTATION_CONTRACT_ID` and `SOROBAN_RPC_URL`. Leave either
+unset and attestation is simply off: receipts render without the block rather
+than claiming a verifiability they don't have.
+
 ## Verifying a receipt yourself
 
 ```bash
