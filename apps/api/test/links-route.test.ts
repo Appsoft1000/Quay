@@ -73,6 +73,7 @@ function fakeContainer(): Container {
     apiKeys: {} as Container["apiKeys"],
     kyc: {} as Container["kyc"],
     db: {} as Container["db"],
+    telemetry: { upsert: async () => {}, summary: async () => [], all: async () => [] } as unknown as Container["telemetry"],
     horizonStatus: () => ({ degraded: false, usingFallback: false, consecutiveFailures: 0 }),
     metricsToken: "test-metrics-token",
     watcherLagSeconds: () => 0,

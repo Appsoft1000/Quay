@@ -13,6 +13,7 @@ import {
   type OffRampPort,
   type OffRampQuote,
   type OffRampStateRepository,
+  type OffRampTelemetryRepository,
   type PaymentLink,
   type PayoutFieldDescriptor,
   type RailPort,
@@ -27,6 +28,15 @@ import type { StellarConfig } from "@checkout/stellar";
 import { AnchorHealth, LinkService } from "../src/services/link-service";
 import { encryptSecret } from "../src/services/secret-crypto";
 import { Hono } from "hono";
+
+/** No-op telemetry stub — tests that predate #20 don't assert on telemetry writes. */
+const noopTelemetry = {
+  upsert: async () => {},
+  findById: async () => null,
+  findByJobId: async () => null,
+  summary: async () => [],
+  all: async () => [],
+} as unknown as OffRampTelemetryRepository;
 
 const DEST = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
 const ISSUER = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
@@ -155,8 +165,17 @@ describe("AnchorHealth (probe + circuit breaker)", () => {
     expect(h.snapshot().lastError).toContain("TOML probe returned 599");
   });
 
+  // `snapshot()` and `isAvailable()` both call `tickState()`, which auto-promotes
+  // open -> half_open once cooldownMs has elapsed. Any assertion that the breaker
+  // is *still open* therefore races that promotion, and the window has to be wide
+  // enough to survive scheduler jitter: at 5-50ms these two tests failed
+  // intermittently under `turbo run test` (all six suites concurrent) with
+  // "expected 0 to be greater than 0" and a false `isAvailable()`. 400ms keeps
+  // them sub-second while making the race practically impossible.
+  const COOLDOWN_MS = 400;
+
   it("half_open transition: after cooldownMs elapses, isAvailable returns true again", async () => {
-    const cooldownMs = 50;
+    const cooldownMs = COOLDOWN_MS;
     const h = new AnchorHealth({
       enabled: true,
       url: "https://testanchor.stellar.org",
@@ -201,7 +220,7 @@ describe("AnchorHealth (probe + circuit breaker)", () => {
   });
 
   it("half_open failure re-opens (and resets openedAt)", async () => {
-    const cooldownMs = 5;
+    const cooldownMs = COOLDOWN_MS;
     const h = new AnchorHealth({
       enabled: true,
       url: "https://testanchor.stellar.org",
@@ -211,14 +230,22 @@ describe("AnchorHealth (probe + circuit breaker)", () => {
     });
     configureFetch(() => ({ ok: false, status: 502 }));
     await h.probe();
-    const firstOpenedAt = h.snapshot().state === "open" ? Date.now() : 0;
-    await new Promise((r) => setTimeout(r, cooldownMs + 1));
+    // Assert the first open directly, rather than through a `Date.now()`
+    // conditional whose only real assertion was `Date.now() > 0`.
+    expect(h.snapshot().state).toBe("open");
+
+    await new Promise((r) => setTimeout(r, cooldownMs + 10));
+    // Cooldown elapsed: the breaker is now half_open and lets one trial through.
+    expect(h.snapshot().state).toBe("half_open");
+
     configureFetch(() => ({ ok: false, status: 502 }));
     await h.probe();
-    expect(h.snapshot().state).toBe("open");
-    // openedAt is reset on re-open
-    expect(h.snapshot().lastError).toContain("502");
-    expect(firstOpenedAt).toBeGreaterThan(0);
+    // The trial shot failed, so it re-opens with a fresh openedAt — which is
+    // what keeps it blocking for another full cooldown rather than immediately
+    // promoting again.
+    const after = h.snapshot();
+    expect(after.state).toBe("open");
+    expect(after.lastError).toContain("502");
   });
 
   it("success resets consecutive failures even after previous opens", async () => {
@@ -523,6 +550,7 @@ function buildSvcWithHealth(health: AnchorHealth, offramp: OffRampPort): Svc {
     offrampState: new FakeOffRampStateForAnchor(),
     kyc: new FakeKycAlwaysAcceptedForAnchor(),
     stellar: STELLAR,
+    telemetry: noopTelemetry,
     health,
     correlation: "memo",
     webhookGuard: async () => ({ ok: true }) as const,
@@ -712,6 +740,7 @@ describe("LinkService.pollCashOuts attribution", () => {
       offrampState: new FakeOffRampStateForAnchor(),
       kyc: new FakeKycAlwaysAcceptedForAnchor(),
       stellar: STELLAR,
+      telemetry: noopTelemetry,
       health: new AnchorHealth({ enabled: false, url: null, homeDomain: null }),
       correlation: "memo",
     webhookGuard: async () => ({ ok: true }) as const,
@@ -764,6 +793,7 @@ describe("LinkService.pollCashOuts attribution", () => {
       offrampState: new FakeOffRampStateForAnchor(),
       kyc: new FakeKycAlwaysAcceptedForAnchor(),
       stellar: STELLAR,
+      telemetry: noopTelemetry,
       health: new AnchorHealth({ enabled: false, url: null, homeDomain: null }),
       correlation: "memo",
     webhookGuard: async () => ({ ok: true }) as const,
@@ -810,6 +840,7 @@ describe("LinkService.pollCashOuts attribution", () => {
       offrampState: new FakeOffRampStateForAnchor(),
       kyc: new FakeKycAlwaysAcceptedForAnchor(),
       stellar: STELLAR,
+      telemetry: noopTelemetry,
       health: new AnchorHealth({ enabled: false, url: null, homeDomain: null }),
       correlation: "memo",
     webhookGuard: async () => ({ ok: true }) as const,
@@ -851,6 +882,7 @@ describe("LinkService.pollCashOuts attribution", () => {
       offrampState: new FakeOffRampStateForAnchor(),
       kyc: new FakeKycAlwaysAcceptedForAnchor(),
       stellar: STELLAR,
+      telemetry: noopTelemetry,
       health: new AnchorHealth({ enabled: false, url: null, homeDomain: null }),
       correlation: "memo",
     webhookGuard: async () => ({ ok: true }) as const,

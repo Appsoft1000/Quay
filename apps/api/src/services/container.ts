@@ -8,7 +8,7 @@ import {
   type HorizonStatus,
 } from "@checkout/stellar";
 import { MockAnchorOffRamp, NoKycRequired, TestAnchorKyc, TestAnchorOffRamp } from "@checkout/offramp";
-import type { KycPort, Logger, OffRampPort, OffRampStateRepository } from "@checkout/core";
+import type { KycPort, Logger, OffRampPort, OffRampStateRepository, OffRampTelemetryRepository } from "@checkout/core";
 import { env } from "../env";
 import { createDb, bootstrap, type DB } from "../db/client";
 import { parsePiiKey } from "../crypto/pii";
@@ -21,6 +21,7 @@ import {
   DrizzleTokenRevocationRepository,
   DrizzleOffRampStateRepository,
   DrizzleKycRepository,
+  DrizzleOfframpTelemetryRepository,
   DrizzleApiKeyRepository,
 } from "../repos/index";
 import { LinkService, AnchorHealth } from "./link-service";
@@ -38,6 +39,7 @@ import { horizonSignerFetcher } from "./horizon-signers";
 import { SessionIssuer } from "./session";
 import type { StellarTomlConfig } from "../routes/well-known";
 import { CircuitBreakerOffRamp } from "./circuit-breaker";
+import { assertKeyConfigured } from "./secret-crypto";
 
 export interface Container {
   service: LinkService;
@@ -48,6 +50,7 @@ export interface Container {
   apiKeys: DrizzleApiKeyRepository;
   db: DB;
   kyc: KycPort;
+  telemetry: OffRampTelemetryRepository;
   config: { network: string; horizonUrl: string; sellerWallet: string };
   horizonStatus(): HorizonStatus;
   /** Optional SSRF guard override for webhook URLs. Tests inject a permissive
@@ -77,6 +80,14 @@ export async function createContainer(): Promise<Container> {
   // without us needing any ambient / AsyncLocalStorage plumbing.
   const logger = createLogger({ level: env.logLevel, base: { network: env.network } });
 
+  // Resolve the webhook-secret encryption key NOW rather than lazily on the
+  // first encrypt/decrypt. `secret-crypto.ts` throws when the key is missing in
+  // production — but it is only reached when a seller first registers a
+  // webhook, so a misconfigured deploy boots green and fails on a customer's
+  // request hours later. Touching it here turns that into a boot failure the
+  // deploy itself surfaces.
+  assertKeyConfigured();
+
   const stellar = resolveStellarConfig({
     network: env.network,
     horizonUrl: env.horizonUrl,
@@ -92,6 +103,7 @@ export async function createContainer(): Promise<Container> {
   const stateRepo = new DrizzleWatcherStateRepository(db);
   const revocationsRepo = new DrizzleTokenRevocationRepository(db);
   const offrampStateRepo = new DrizzleOffRampStateRepository(db);
+  const telemetryRepo = new DrizzleOfframpTelemetryRepository(db);
   const apiKeysRepo = new DrizzleApiKeyRepository(db);
 
   const seller = resolveSellerKeypairOrWallet(logger);
@@ -135,6 +147,7 @@ export async function createContainer(): Promise<Container> {
     kyc,
     attestation,
     stellar,
+    telemetry: telemetryRepo,
     health: anchorHealth,
     correlation: env.correlation,
     logger,
@@ -191,6 +204,7 @@ export async function createContainer(): Promise<Container> {
     apiKeys: apiKeysRepo,
     db,
     kyc,
+    telemetry: telemetryRepo,
     config: { network: stellar.network, horizonUrl: stellar.horizonUrl, sellerWallet },
     horizonStatus: () => pollingWatcher.getStatus(),
     metricsToken,

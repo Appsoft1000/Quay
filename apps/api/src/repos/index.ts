@@ -20,6 +20,10 @@ import type {
   WebhookDelivery,
   WebhookRepository,
   WatcherStateRepository,
+  OffRampTelemetryRepository,
+  OffRampTelemetryRow,
+  OffRampTelemetryStatus,
+  OffRampTelemetrySummary,
   AssetRef,
 } from "@checkout/core";
 import type { DB } from "../db/client";
@@ -35,6 +39,7 @@ import {
   offrampJobs,
   sellerKyc,
   revokedTokens,
+  offrampTelemetry,
   apiKeys,
 } from "../db/schema";
 import { fromStroops, toStroops } from "@checkout/core";
@@ -217,11 +222,24 @@ export class DrizzleLinkRepository implements LinkRepository {
       .where(eq(links.id, link.id));
   }
 
-  /** Delete all rows flagged as demo data. Called by `pnpm demo:reset`. */
-  async deleteDemo(): Promise<number> {
-    const rows = await this.db.select({ id: links.id }).from(links).where(eq(links.isDemo, true));
+  /**
+   * Delete rows flagged as demo data. Called by `pnpm demo:reset` and by
+   * `POST /demo/reset`.
+   *
+   * `sellerId` scopes the delete to one seller's demo rows. It is required on
+   * the HTTP path: SEP-10 registration is open, so any keypair holder can
+   * authenticate, and an unscoped delete let any one of them wipe every
+   * seller's demo data on a shared testnet deployment. Omitting it (the CLI
+   * path, which is already an operator-level action) keeps the original
+   * delete-everything behaviour.
+   */
+  async deleteDemo(sellerId?: string): Promise<number> {
+    const where = sellerId
+      ? and(eq(links.isDemo, true), eq(links.sellerId, sellerId))
+      : eq(links.isDemo, true);
+    const rows = await this.db.select({ id: links.id }).from(links).where(where);
     if (rows.length > 0) {
-      await this.db.delete(links).where(eq(links.isDemo, true));
+      await this.db.delete(links).where(where);
     }
     return rows.length;
   }
@@ -686,6 +704,109 @@ export class DrizzleKycRepository implements KycRepository {
       .insert(sellerKyc)
       .values(row)
       .onConflictDoUpdate({ target: sellerKyc.sellerId, set: row });
+  }
+}
+
+function rowToTelemetry(row: typeof offrampTelemetry.$inferSelect): OffRampTelemetryRow {
+  return {
+    id: row.id,
+    anchorDomain: row.anchorDomain,
+    corridor: row.corridor,
+    sellAsset: row.sellAsset,
+    sellAmount: row.sellAmount,
+    indicativeRate: row.indicativeRate,
+    quotedRate: row.quotedRate,
+    quotedAt: row.quotedAt,
+    initiatedAt: row.initiatedAt,
+    settledAt: row.settledAt,
+    effectiveRate: row.effectiveRate,
+    feeAmount: row.feeAmount,
+    status: row.status as OffRampTelemetryStatus,
+    failureReason: row.failureReason,
+  };
+}
+
+/** nearest-rank percentile over an ascending-sorted array; null on empty input. */
+function percentile(sortedAsc: number[], p: number): number | null {
+  if (sortedAsc.length === 0) return null;
+  const idx = Math.max(0, Math.ceil(p * sortedAsc.length) - 1);
+  return sortedAsc[idx] ?? null;
+}
+
+/**
+ * Persistence for passive off-ramp telemetry (issue #20, 3.8). `upsert` is
+ * keyed by `id` — one row per cash-out, replaced in place as it progresses
+ * through quoted -> initiated -> settled / failed. No product surface reads
+ * this except the operator-only /telemetry routes.
+ */
+export class DrizzleOfframpTelemetryRepository implements OffRampTelemetryRepository {
+  constructor(private readonly db: DB) {}
+
+  async upsert(row: OffRampTelemetryRow): Promise<void> {
+    const dbRow: typeof offrampTelemetry.$inferInsert = {
+      id: row.id,
+      anchorDomain: row.anchorDomain,
+      corridor: row.corridor,
+      sellAsset: row.sellAsset,
+      sellAmount: row.sellAmount,
+      indicativeRate: row.indicativeRate,
+      quotedRate: row.quotedRate,
+      quotedAt: row.quotedAt,
+      initiatedAt: row.initiatedAt,
+      settledAt: row.settledAt,
+      effectiveRate: row.effectiveRate,
+      feeAmount: row.feeAmount,
+      status: row.status,
+      failureReason: row.failureReason,
+    };
+    await this.db
+      .insert(offrampTelemetry)
+      .values(dbRow)
+      .onConflictDoUpdate({ target: offrampTelemetry.id, set: dbRow });
+  }
+
+  async all(): Promise<OffRampTelemetryRow[]> {
+    const rows = await this.db.select().from(offrampTelemetry);
+    return rows.map(rowToTelemetry);
+  }
+
+  async summary(): Promise<OffRampTelemetrySummary[]> {
+    const rows = await this.all();
+    const groups = new Map<string, OffRampTelemetryRow[]>();
+    for (const r of rows) {
+      const key = `${r.anchorDomain} ${r.corridor}`;
+      const list = groups.get(key);
+      if (list) list.push(r);
+      else groups.set(key, [r]);
+    }
+
+    const out: OffRampTelemetrySummary[] = [];
+    for (const [key, list] of groups) {
+      const [anchorDomain, corridor] = key.split(" ") as [string, string];
+      const settled = list.filter((r) => r.status === "settled");
+      const failed = list.filter((r) => r.status === "failed");
+      const latencies = settled
+        .filter((r): r is OffRampTelemetryRow & { initiatedAt: number; settledAt: number } =>
+          r.initiatedAt !== null && r.settledAt !== null,
+        )
+        .map((r) => r.settledAt - r.initiatedAt)
+        .sort((a, b) => a - b);
+      const spreads = settled
+        .filter((r) => r.effectiveRate !== null)
+        .map((r) => (Number(r.quotedRate) - Number(r.effectiveRate)) / Number(r.quotedRate));
+
+      out.push({
+        anchorDomain,
+        corridor,
+        count: list.length,
+        settledCount: settled.length,
+        failedCount: failed.length,
+        latencyP50Ms: percentile(latencies, 0.5),
+        latencyP95Ms: percentile(latencies, 0.95),
+        meanSpread: spreads.length > 0 ? spreads.reduce((a, b) => a + b, 0) / spreads.length : null,
+      });
+    }
+    return out;
   }
 }
 

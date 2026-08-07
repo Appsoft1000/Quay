@@ -50,10 +50,20 @@ Embed the lightweight modal checkout script tag in your HTML and attach it to an
 ```
 
 ### 2. Create a Link via API
+
+Both write endpoints require authentication. Mint an API key from the dashboard
+(**API keys → Create**, after signing in with your Stellar wallet) and send it
+as a bearer token — the plaintext key is shown once, at creation.
+
+Keys are scoped. The default set (`links:read`, `links:write`,
+`webhooks:manage`) covers everything in this quickstart; `offramp:initiate`
+moves money and must be requested explicitly.
+
 Generate a payment link from your backend server:
 
 ```bash
 curl -X POST https://quay-api.onrender.com/links \
+  -H "Authorization: Bearer ak_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
   -H "Content-Type: application/json" \
   -d '{
     "title": "T-shirt",
@@ -87,6 +97,7 @@ Register your endpoint to receive real-time JSON notifications when payments lan
 
 ```bash
 curl -X POST https://quay-api.onrender.com/webhooks \
+  -H "Authorization: Bearer ak_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
   -H "Content-Type: application/json" \
   -d '{ "url": "https://your-domain.com/api/webhooks/checkout" }'
 ```

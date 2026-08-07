@@ -16,6 +16,7 @@ import {
   AlwaysAcceptedKyc,
   FakeLinkRepository,
   FakeOffRampStateRepository,
+  FakeTelemetryRepository,
   FakeWebhookRepository,
   ScriptedOffRamp,
   makeLink,
@@ -112,6 +113,7 @@ function makeService(attestation?: AttestationPort) {
     offrampState: new FakeOffRampStateRepository(),
     kyc: new AlwaysAcceptedKyc(),
     attestation,
+    telemetry: new FakeTelemetryRepository(),
     stellar,
     correlation: "memo",
   });
