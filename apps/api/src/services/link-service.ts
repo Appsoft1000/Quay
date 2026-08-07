@@ -1,4 +1,6 @@
 import {
+  compareAmount,
+  assetEquals,
   CannotReceiveError,
   canTransition,
   isQuoteExpired,
@@ -32,6 +34,7 @@ import {
   type OffRampTelemetryRow,
 } from "@checkout/core";
 import { canReceiveAsset, resolveAsset, type StellarConfig } from "@checkout/stellar";
+import { Horizon, Operation, Transaction, type Memo } from "@stellar/stellar-sdk";
 import { newId, newMuxedId, newReference } from "./ids";
 import { WebhookSender } from "./webhook-sender";
 import { metrics } from "../metrics";
@@ -690,6 +693,122 @@ export class LinkService {
    * reachable (paid, off-ramp in flight, off-ramp settled, off-ramp failed,
    * already expired) is rejected with 409. 404 if the id is unknown.
    */
+  /**
+   * Submit a transaction the buyer signed in their own wallet (issue #31).
+   *
+   * The buyer keeps custody throughout: they build and sign locally, and this
+   * only relays the result to Horizon. That makes the XDR entirely
+   * attacker-controlled, so it is validated in full before submission — the
+   * issue's requirement is "never submit an unvalidated XDR", and the
+   * dangerous reading of that is to check the *first* operation and relay the
+   * rest unread.
+   *
+   * Everything below rejects rather than repairs. A transaction that isn't
+   * exactly the payment this link asked for is not something to fix up on the
+   * buyer's behalf.
+   */
+  async submitPayment(linkId: string, signedXdr: string, opts: ServiceCallOptions = {}): Promise<{ txHash: string }> {
+    const log = opts.logger ?? this.deps.logger!;
+    const link = await this.deps.links.findById(linkId);
+    if (!link) throw new HttpError(404, "Link not found");
+    if (link.status !== "active" && link.status !== "underpaid") {
+      throw new HttpError(409, `Link cannot accept payment (is "${link.status}")`);
+    }
+
+    let tx: Transaction;
+    try {
+      const parsed = new Transaction(signedXdr, this.deps.stellar.networkPassphrase);
+      tx = parsed;
+    } catch (err) {
+      // Covers malformed base64, a different network's passphrase, and fee-bump
+      // envelopes (which `Transaction` refuses) — all of which are "not the
+      // thing we asked you to sign".
+      throw new HttpError(400, `invalid_xdr: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    // ---- exactly one operation -------------------------------------------
+    // The core of the check. A transaction whose first operation is the
+    // expected payment can carry any number of further operations — a second
+    // payment, a changeTrust, an account merge, a setOptions adding a signer.
+    // Validating operations[0] and relaying the envelope would sign us up to
+    // submit all of them.
+    if (tx.operations.length !== 1) {
+      throw new HttpError(
+        400,
+        `Transaction must contain exactly one operation, got ${tx.operations.length}`,
+      );
+    }
+    const op = tx.operations[0]!;
+    if (op.type !== "payment") {
+      throw new HttpError(400, `Transaction must be a single payment operation, got "${op.type}"`);
+    }
+    const payment = op as Operation.Payment;
+
+    // A per-operation source lets the envelope move value out of an account
+    // other than the signer's. Nothing about this flow needs it.
+    if (payment.source && payment.source !== tx.source) {
+      throw new HttpError(400, "Payment operation must not override the transaction source account");
+    }
+
+    // ---- destination, asset, amount, memo ---------------------------------
+    if (payment.destination !== link.destination) {
+      throw new HttpError(409, "Transaction destination does not match the link destination");
+    }
+
+    // `getIssuer()` is typed as possibly-undefined even on a non-native asset;
+    // normalise to null so `assetEquals` compares like with like rather than
+    // silently treating an issued asset as native.
+    const txAsset: AssetRef = payment.asset.isNative()
+      ? { code: "XLM", issuer: null }
+      : { code: payment.asset.getCode(), issuer: payment.asset.getIssuer() ?? null };
+    if (!assetEquals(txAsset, link.asset)) {
+      throw new HttpError(
+        409,
+        `Asset mismatch: link expects ${link.asset.code}, transaction sends ${txAsset.code}`,
+      );
+    }
+
+    // Overpayment is allowed and reconciled by the watcher's cumulative
+    // accounting; underpayment is not something to submit and hope about.
+    if (compareAmount(payment.amount, link.amount) === "under") {
+      throw new HttpError(
+        409,
+        `Amount too low: link expects ${link.amount}, transaction sends ${payment.amount}`,
+      );
+    }
+
+    // Memo correlation, unless the link uses a muxed destination, where the id
+    // is carried in the address itself and no memo is required.
+    if (!link.muxedId) {
+      const memo = memoText(tx.memo);
+      if (memo !== link.reference) {
+        throw new HttpError(409, "Transaction memo does not match the link reference");
+      }
+    }
+
+    const server = new Horizon.Server(this.deps.stellar.horizonUrl);
+    try {
+      const res = await server.submitTransaction(tx);
+      log.info(
+        { event: "payment.submitted", linkId: link.id, txHash: res.hash, reference: link.reference },
+        "wallet-signed payment submitted",
+      );
+      // Deliberately not marking the link paid here. The watcher owns that
+      // transition, from the ledger rather than from our own submit call, so
+      // there is exactly one path to `paid` no matter how the payment arrived.
+      return { txHash: res.hash };
+    } catch (err) {
+      const detail =
+        typeof err === "object" && err !== null && "response" in err
+          ? JSON.stringify((err as { response?: { data?: unknown } }).response?.data ?? {})
+          : err instanceof Error
+            ? err.message
+            : String(err);
+      log.warn({ event: "payment.submit.failed", linkId: link.id, error: detail }, "wallet submit rejected");
+      throw new HttpError(502, `Transaction submission failed: ${detail}`);
+    }
+  }
+
   async cancelLink(id: string): Promise<PaymentLink> {
     const link = await this.deps.links.findById(id);
     if (!link) throw new HttpError(404, "Link not found");
@@ -1177,6 +1296,14 @@ export class LinkService {
       },
     }, { logger: opts.logger ?? this.deps.logger! });
   }
+}
+
+/** MEMO_TEXT as a string, or null for any other memo type (id/hash/none). */
+function memoText(memo: Memo): string | null {
+  if (memo.type !== "text") return null;
+  const v = memo.value;
+  if (v === undefined || v === null) return null;
+  return typeof v === "string" ? v : Buffer.from(v).toString("utf8");
 }
 
 export class HttpError extends Error {
