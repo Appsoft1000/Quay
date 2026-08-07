@@ -7,6 +7,9 @@ dist
 *.db-*
 .env
 .env.local
+.env.backup
+.env.*.backup
+.env.backup.*
 PR.md
 
 # Build/run artifacts that have been staged by accident before.
