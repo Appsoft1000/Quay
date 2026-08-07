@@ -16,3 +16,8 @@ test-results
 
 # Rust / Soroban build output
 contracts/target
+
+# Maintainer-local planning notes and the one-off tooling that reads them.
+# Ignored, not just untracked, so a `git add -A` can't sweep them back in.
+ISSUES.md
+.github/create-issues.js
