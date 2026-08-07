@@ -73,6 +73,16 @@ jobs:
 
       - name: Trivy scan (fail on HIGH/CRITICAL)
         uses: aquasecurity/trivy-action@v0.33.1
+        env:
+          # The action resolves its own binary through the GitHub API. Without a
+          # token that call is anonymous and rate-limited, and the step then dies
+          # at "installing Trivy binary" — which looks identical to a scan
+          # failure while never having scanned anything. A vulnerability gate
+          # that can fail open on a rate limit is worse than no gate.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Pull the vuln DB from GHCR rather than the default host, which is the
+          # other regular source of setup-time flakiness here.
+          TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db:2
         with:
           image-ref: quay-api:ci
           severity: HIGH,CRITICAL
