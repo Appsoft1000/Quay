@@ -96,10 +96,18 @@ jobs:
       # this issue's own "Done when: SIGTERM reaches the Node process".
       - name: Smoke test - health, readiness, and graceful SIGTERM
         run: |
+          # The image sets NODE_ENV=production, so the boot-time secret checks
+          # added in #126 apply — a missing WEBHOOK_SECRET_ENCRYPTION_KEY is a
+          # hard boot failure by design, precisely so a misconfigured deploy
+          # dies here rather than at a customer's first webhook. These are
+          # throwaway values for the smoke test; they are not secrets and are
+          # never used against a real network.
           docker run -d --name quay-api-smoke -p 8787:8787 \
             --read-only --tmpfs /tmp \
             -e DATABASE_URL=file:/tmp/smoke.db \
             -e USDC_ISSUER_TESTNET=GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5 \
+            -e WEBHOOK_SECRET_ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000 \
+            -e JWT_SECRET=0000000000000000000000000000000000000000000000000000000000000000 \
             quay-api:ci
 
           ready=""
