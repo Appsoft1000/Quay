@@ -135,7 +135,7 @@ export async function createContainer(): Promise<Container> {
   // Anchor health probe + circuit breaker (issue #19, 3.7). In mock mode the
   // probe is disabled and short-circuits to "always available" so the dev
   // surface still works offline; in testanchor mode we hit the real anchor.
-  const anchorHealth = buildAnchorHealth(env.offramp);
+  const anchorHealth = buildAnchorHealth(env.offramp, sellerWallet);
 
   // Resolved before the service because the attester IS the SEP-10 signing
   // identity: the key a wallet already authenticated against is the one that
@@ -272,7 +272,7 @@ export async function createContainer(): Promise<Container> {
  * the surface minimal and don't pollute env.ts which lives outside the
  * scope of issue 3.7).
  */
-function buildAnchorHealth(offrampKind: "mock" | "testanchor"): AnchorHealth {
+function buildAnchorHealth(offrampKind: "mock" | "testanchor", probeAccount: string): AnchorHealth {
   const enabled = offrampKind === "testanchor";
   const url = enabled ? process.env.ANCHOR_URL ?? "https://testanchor.stellar.org" : null;
   const homeDomain = enabled ? process.env.ANCHOR_HOME_DOMAIN ?? "testanchor.stellar.org" : null;
@@ -282,6 +282,9 @@ function buildAnchorHealth(offrampKind: "mock" | "testanchor"): AnchorHealth {
     enabled,
     url,
     homeDomain,
+    // The configured seller wallet is a real, funded account, which is what the
+    // anchor requires to issue a challenge.
+    probeAccount: enabled ? probeAccount : null,
     failureThreshold: Number.isFinite(failureThreshold) && failureThreshold > 0 ? failureThreshold : 3,
     cooldownMs: Number.isFinite(cooldownMs) && cooldownMs > 0 ? cooldownMs : 30_000,
   });
