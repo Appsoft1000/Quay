@@ -10,14 +10,14 @@ export type DB = LibSQLDatabase<typeof schema>;
 const BOOTSTRAP_SQL = [
   // payout_fields_json included here so fresh databases get the full schema
   // (issue #32). Existing databases are handled by the ALTER TABLE statement
-  // in MIGRATIONS_SQL below.
+  // in ADDITIVE_MIGRATIONS below.
   `CREATE TABLE IF NOT EXISTS sellers (
      id TEXT PRIMARY KEY, name TEXT NOT NULL, wallet TEXT NOT NULL UNIQUE,
      payout_fields_json TEXT, created_at INTEGER NOT NULL
    )`,
   // New columns (offramp_indicative_rate, offramp_rate, offramp_rate_delta) are
   // included here so fresh databases get the full schema. Existing databases are
-  // handled by the ALTER TABLE statements in MIGRATION_SQL below.
+  // handled by the ALTER TABLE statements in ADDITIVE_MIGRATIONS below.
   `CREATE TABLE IF NOT EXISTS links (
      id TEXT PRIMARY KEY, reference TEXT NOT NULL UNIQUE, seller_id TEXT NOT NULL,
      destination TEXT NOT NULL, muxed_id TEXT, title TEXT NOT NULL, amount TEXT NOT NULL,
@@ -117,23 +117,14 @@ const BOOTSTRAP_SQL = [
    )`,
 ];
 
-/**
- * Best-effort ALTER TABLE statements for existing databases that were created
- * before issue 3.5 added the three rate-telemetry columns. SQLite/libSQL throws
- * "duplicate column name" if the column already exists — we swallow that error
- * so the server can boot cleanly against both old and new schemas.
- */
-const MIGRATION_SQL = [
+// Additive column added after the initial release. `CREATE TABLE IF NOT EXISTS`
+// above won't touch an existing table, so add it out-of-band; ignore the
+// "duplicate column" error on databases that already have it.
+const ADDITIVE_MIGRATIONS = [
   `ALTER TABLE links ADD COLUMN offramp_indicative_rate TEXT`,
   `ALTER TABLE links ADD COLUMN offramp_rate TEXT`,
   `ALTER TABLE links ADD COLUMN offramp_rate_delta TEXT`,
   `ALTER TABLE links ADD COLUMN overpaid_amount TEXT`,
-];
-
-// Additive column added after the initial release. `CREATE TABLE IF NOT EXISTS`
-// above won't touch an existing table, so add it out-of-band; ignore the
-// "duplicate column" error on databases that already have it.
-const MIGRATIONS_SQL = [
   `ALTER TABLE links ADD COLUMN muxed_id TEXT`,
   `ALTER TABLE links ADD COLUMN offramp_fee_amount TEXT`,
   `ALTER TABLE links ADD COLUMN offramp_fee_currency TEXT`,
@@ -214,7 +205,7 @@ export async function bootstrap(client: Client): Promise<void> {
       throw err;
     }
   }
-  for (const sql of MIGRATIONS_SQL) {
+  for (const sql of ADDITIVE_MIGRATIONS) {
     try {
       await client.execute(sql);
     } catch (err) {
