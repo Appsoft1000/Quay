@@ -13,6 +13,7 @@
   "dependencies": {
     "@checkout/core": "workspace:*",
     "@checkout/offramp": "workspace:*",
+    "@checkout/soroban": "workspace:*",
     "@checkout/stellar": "workspace:*",
     "@hono/node-server": "2.0.5",
     "@libsql/client": "0.17.4",

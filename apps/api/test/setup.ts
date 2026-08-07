@@ -130,6 +130,7 @@ export class FakeWatcherPort implements WatcherPort {
       memoType: "text",
       toMuxedId: null,
       createdAt: new Date().toISOString(),
+      ledger: 1,
       ...over,
     };
   }

@@ -44,6 +44,7 @@ function payment(over: Partial<NormalizedPayment> = {}): NormalizedPayment {
     memoType: "text",
     toMuxedId: null,
     createdAt: "2026-01-01T00:00:00Z",
+    ledger: 1,
     ...over,
   };
 }

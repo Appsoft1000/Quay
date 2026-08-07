@@ -35,6 +35,7 @@ function makePayment(n: number, overrides: Partial<NormalizedPayment> = {}): Nor
     memoType: "none",
     toMuxedId: null,
     createdAt: new Date(0).toISOString(),
+    ledger: 1,
     ...overrides,
   };
 }
@@ -118,6 +119,14 @@ function makeFakeLinkRepo(initial: PaymentLink[]): LinkRepository {
         .filter((p) => p.linkId === linkId)
         .reduce((sum, p) => sum + toStroops(p.amount), 0n);
       return fromStroops(total);
+    },
+      async paymentLedger(txHash: string): Promise<number | null> {
+      return payments.find((p) => p.txHash === txHash)?.ledger ?? null;
+    },
+    async listUnattested(limit: number): Promise<PaymentLink[]> {
+      return [...byId.values()]
+        .filter((l) => l.txHash !== null && l.attestedAt === null && l.status !== "active")
+        .slice(0, limit);
     },
   };
 }
@@ -222,6 +231,10 @@ function makeTestLink(overrides: Partial<PaymentLink> = {}): PaymentLink {
     offrampFeeCurrency: null,
     offrampFeeSource: null,
     offrampNetTargetAmount: null,
+    attestationContractId: null,
+    attestationTxHash: null,
+    attestationLedger: null,
+    attestedAt: null,
     expiresAt: null,
     isDemo: false,
     createdAt: Date.now(),
