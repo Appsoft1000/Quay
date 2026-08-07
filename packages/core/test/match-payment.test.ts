@@ -33,6 +33,10 @@ function link(over: Partial<PaymentLink> = {}): PaymentLink {
     offrampFeeCurrency: null,
     offrampFeeSource: null,
     offrampNetTargetAmount: null,
+    attestationContractId: null,
+    attestationTxHash: null,
+    attestationLedger: null,
+    attestedAt: null,
     expiresAt: null,
     isDemo: false,
     createdAt: 0,
@@ -53,6 +57,7 @@ function payment(over: Partial<NormalizedPayment> = {}): NormalizedPayment {
     memoType: "text",
     toMuxedId: null,
     createdAt: "2026-01-01T00:00:00Z",
+    ledger: 1,
     ...over,
   };
 }
@@ -284,6 +289,7 @@ function exactPaymentFor(
     memoType: "text",
     toMuxedId: null,
     createdAt: "2026-01-01T00:00:00Z",
+    ledger: 1,
   };
 }
 
@@ -323,6 +329,10 @@ describe("property: exact payment is always paid", () => {
             offrampFeeCurrency: null,
             offrampFeeSource: null,
             offrampNetTargetAmount: null,
+            attestationContractId: null,
+            attestationTxHash: null,
+            attestationLedger: null,
+            attestedAt: null,
             expiresAt: null,
             isDemo: false,
             createdAt: 0,
@@ -378,6 +388,10 @@ describe("property: destination mismatch is never paid", () => {
             offrampFeeCurrency: null,
             offrampFeeSource: null,
             offrampNetTargetAmount: null,
+            attestationContractId: null,
+            attestationTxHash: null,
+            attestationLedger: null,
+            attestedAt: null,
             expiresAt: null,
             isDemo: false,
             createdAt: 0,
@@ -395,6 +409,7 @@ describe("property: destination mismatch is never paid", () => {
             memoType: "text",
             toMuxedId: null,
             createdAt: "2026-01-01T00:00:00Z",
+            ledger: 1,
           };
 
           const lookup = (r: string) => (r === lnk.reference ? lnk : undefined);
@@ -446,6 +461,10 @@ describe("property: memo whitespace is not trimmed", () => {
             offrampFeeCurrency: null,
             offrampFeeSource: null,
             offrampNetTargetAmount: null,
+            attestationContractId: null,
+            attestationTxHash: null,
+            attestationLedger: null,
+            attestedAt: null,
             expiresAt: null,
             isDemo: false,
             createdAt: 0,
@@ -471,6 +490,7 @@ describe("property: memo whitespace is not trimmed", () => {
             memoType: "text",
             toMuxedId: null,
             createdAt: "2026-01-01T00:00:00Z",
+            ledger: 1,
           };
 
           const lookup = (r: string) => (r === lnk.reference ? lnk : undefined);
