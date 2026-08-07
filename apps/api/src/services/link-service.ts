@@ -79,6 +79,12 @@ export interface AnchorProbeConfig {
   url: string | null;
   /** Home domain used for TOML and SEP-10. */
   homeDomain: string | null;
+  /**
+   * Account the SEP-10 liveness probe asks for a challenge for. Must be a real
+   * Stellar account: anchors validate the `account` parameter and reject a
+   * placeholder, which makes every probe fail and looks exactly like an outage.
+   */
+  probeAccount: string | null;
   /** Defaults to 3. */
   failureThreshold?: number;
   /** Defaults to 30_000 ms. */
@@ -99,6 +105,7 @@ export class AnchorHealth {
   private readonly enabled: boolean;
   private readonly url: string | null;
   private readonly homeDomain: string | null;
+  private readonly probeAccount: string | null;
   private readonly failureThreshold: number;
   private readonly cooldownMs: number;
   private readonly requestTimeoutMs: number;
@@ -107,6 +114,7 @@ export class AnchorHealth {
     this.enabled = cfg.enabled;
     this.url = cfg.url;
     this.homeDomain = cfg.homeDomain;
+    this.probeAccount = cfg.probeAccount;
     this.failureThreshold = cfg.failureThreshold ?? 3;
     this.cooldownMs = cfg.cooldownMs ?? 30_000;
     this.requestTimeoutMs = cfg.requestTimeoutMs ?? 5_000;
@@ -160,7 +168,7 @@ export class AnchorHealth {
 
   /** Run one probe cycle: TOML → SEP-10 challenge → /info. */
   async probe(): Promise<AnchorHealthSnapshot> {
-    if (!this.enabled || !this.url || !this.homeDomain) {
+    if (!this.enabled || !this.url || !this.homeDomain || !this.probeAccount) {
       // Mock mode or unconfigured: short-circuit to a healthy state without IO.
       this.tickState();
       this.recordSuccess();
@@ -181,7 +189,10 @@ export class AnchorHealth {
 
       // 2. SEP-10 challenge obtainable (no signing — this is a liveness check).
       const sep10Url = new URL("/auth", this.url);
-      sep10Url.searchParams.set("account", "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK5KQ");
+      // A real account, not a placeholder. testanchor answers `400 {"error":
+      // "Invalid account."}` for the all-zero address, so probing with one made
+      // the breaker open on a healthy anchor and fail cash-outs with 503.
+      sep10Url.searchParams.set("account", this.probeAccount);
       sep10Url.searchParams.set("home_domain", this.homeDomain);
       const sep10Res = await fetchWithTimeout(sep10Url.toString(), this.requestTimeoutMs);
       probes.sep10 = sep10Res.ok;
@@ -283,7 +294,7 @@ export class LinkService {
     this.deps.logger = this.deps.logger ?? NOOP_LOGGER;
     this.sender = new WebhookSender(deps.webhooks, { guard: deps.webhookGuard, logger: this.deps.logger });
     this.health =
-      deps.health ?? new AnchorHealth({ enabled: false, url: null, homeDomain: null });
+      deps.health ?? new AnchorHealth({ enabled: false, url: null, homeDomain: null, probeAccount: null });
   }
 
   /** Webhook deliveries currently in flight (including in-process retries). */
