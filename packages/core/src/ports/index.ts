@@ -355,8 +355,12 @@ export interface AttestationRef {
    * the registry, so the receipt remains verifiable.
    */
   txHash: string | null;
-  /** Ledger sequence the attestation was written in. */
-  ledger: number;
+  /**
+   * Ledger sequence the attestation was written in — null alongside a null
+   * `txHash`, for the same reason. Note this is NOT the ledger the payment
+   * settled in; that one is on the receipt the registry hands back.
+   */
+  ledger: number | null;
   /** Epoch ms the attestation was recorded. */
   attestedAt: number;
 }

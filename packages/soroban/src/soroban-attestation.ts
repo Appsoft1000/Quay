@@ -202,16 +202,21 @@ export class SorobanAttestation implements AttestationPort {
 
   /**
    * The reference is already in the registry. We can name the contract but not
-   * the transaction that wrote it — that hash was never ours to observe, and
-   * the contract does not store it. `attestedAt` comes from the registry
-   * itself, so the receipt still carries a verifiable timestamp.
+   * the transaction that wrote it, nor the ledger it landed in — the contract
+   * stores the settlement fact, not the invocation that carried it, and that
+   * write was never ours to observe. Both stay null rather than being filled
+   * with the *payment's* ledger, which the registry does return and which would
+   * be a plausible-looking wrong answer in `links.attestation_ledger`.
+   *
+   * `attestedAt` does come from the registry, so the receipt still carries a
+   * timestamp someone else can check.
    */
   private async existingRef(reference: string): Promise<AttestationRef> {
     const existing = await this.verify(reference);
     return {
       contractId: this.contractId,
       txHash: null,
-      ledger: existing?.ledger ?? 0,
+      ledger: null,
       attestedAt: existing?.attestedAt ?? Date.now(),
     };
   }

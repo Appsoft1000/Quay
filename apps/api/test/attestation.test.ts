@@ -90,7 +90,7 @@ class RecordingAttestation implements AttestationPort {
     return {
       contractId: CONTRACT,
       txHash: this.reportsExisting ? null : "soroban_tx_1",
-      ledger: 9001,
+      ledger: this.reportsExisting ? null : 9001,
       attestedAt: 1_700_000_500_000,
     };
   }
@@ -214,14 +214,16 @@ describe("settlement attestation", () => {
   });
 
   it("records attestedAt even when the receipt was already in the registry", async () => {
-    // A duplicate returns no transaction hash of ours — the registry stores the
-    // fact, not the transaction that carried it. `attestedAt` must still be set
-    // or the sweep would re-attempt this link forever.
+    // A duplicate returns neither transaction hash nor ledger of ours — the
+    // registry stores the fact, not the invocation that carried it. `attestedAt`
+    // must still be set, or the sweep would re-attempt this link forever.
     attester.reportsExisting = true;
     const { service, links } = makeService(attester);
     const settled = await settle(service, links);
 
     expect(settled.attestationTxHash).toBeNull();
+    expect(settled.attestationLedger).toBeNull();
+    expect(settled.attestationContractId).toBe(CONTRACT);
     expect(settled.attestedAt).toBe(1_700_000_500_000);
     expect(await links.listUnattested(10)).toEqual([]);
   });
