@@ -15,6 +15,7 @@ function fakeContainer(): Container {
     webhooks: {} as Container["webhooks"],
     config: { network: "testnet", horizonUrl: "https://horizon-testnet.stellar.org", sellerWallet: "GSELLER" },
     metricsToken: "secret-token",
+    attestation: { enabled: false, contractId: null },
     watcherLagSeconds: () => 1.5,
     circuitBreakerState: () => 0,
     horizonStatus: () => ({ degraded: false, usingFallback: false, consecutiveFailures: 0 }),
