@@ -961,3 +961,76 @@ describe("AnchorHealth probe account", () => {
     expect(snap.state).toBe("closed");
   });
 });
+
+// ---------------------------------------------------------------------------
+//  BUG-4.19 — the probe must exercise the endpoints the product actually uses.
+//
+//  Third bug of this shape in one evening. The probe checked `/info`; the
+//  off-ramp adapter calls `/sep6/info`. testanchor answers 404 and 200
+//  respectively, so /health reported an outage against a healthy anchor and the
+//  breaker opened, failing live cash-outs with 503.
+//
+//  A probe that checks an endpoint the product never calls tells you nothing
+//  when it passes, and lies when it fails.
+// ---------------------------------------------------------------------------
+describe("AnchorHealth probe endpoints", () => {
+  it("probes the same /sep6/info the off-ramp adapter calls", async () => {
+    const seen: string[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input);
+      seen.push(url);
+      if (url.includes("stellar.toml")) return new Response("ok", { status: 200 });
+      if (url.includes("/auth")) return new Response(JSON.stringify({ transaction: "AAA" }), { status: 200 });
+      // Order matters: "/sep6/info" also ends with "/info", so the specific
+      // path has to be matched first. Mirrors testanchor, where the bare path
+      // does not exist.
+      if (url.includes("/sep6/info")) return new Response("{}", { status: 200 });
+      if (url.endsWith("/info")) return new Response("not found", { status: 404 });
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+
+    try {
+      const health = new AnchorHealth({
+        enabled: true,
+        url: "https://anchor.test",
+        homeDomain: "anchor.test",
+        probeAccount: "GBMDH3QWSD74ILWD2ZVFOAOCMVRNPNGAHN557WA4KABLI5IFN2XYLMGY",
+      });
+      const snap = await health.probe();
+
+      expect(seen.some((u) => u.includes("/sep6/info"))).toBe(true);
+      expect(snap.probes.info).toBe(true);
+      expect(snap.state).toBe("closed");
+      expect(snap.lastError).toBeNull();
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("still reports a genuine /sep6/info outage", async () => {
+    // The point is not to make the probe unfailable — a real 503 must still
+    // count against the breaker.
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input);
+      if (url.includes("stellar.toml")) return new Response("ok", { status: 200 });
+      if (url.includes("/auth")) return new Response(JSON.stringify({ transaction: "AAA" }), { status: 200 });
+      return new Response("upstream down", { status: 503 });
+    }) as typeof fetch;
+
+    try {
+      const health = new AnchorHealth({
+        enabled: true,
+        url: "https://anchor.test",
+        homeDomain: "anchor.test",
+        probeAccount: "GBMDH3QWSD74ILWD2ZVFOAOCMVRNPNGAHN557WA4KABLI5IFN2XYLMGY",
+      });
+      const snap = await health.probe();
+      expect(snap.probes.info).toBe(false);
+      expect(snap.lastError).toMatch(/503/);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+});

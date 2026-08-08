@@ -201,7 +201,11 @@ export class AnchorHealth {
       if (!sep10Body.transaction) throw new Error("SEP-10 challenge missing transaction");
 
       // 3. /info 200.
-      const infoUrl = new URL("/info", this.url);
+      // The SAME path the adapter uses (packages/offramp/src/sep6.ts). A probe
+      // that checks an endpoint the product never calls tells you nothing when
+      // it passes and lies when it fails: testanchor answers 404 on /info and
+      // 200 on /sep6/info, so this reported an outage against a healthy anchor.
+      const infoUrl = new URL("/sep6/info", this.url);
       const infoRes = await fetchWithTimeout(infoUrl.toString(), this.requestTimeoutMs);
       probes.info = infoRes.ok;
       if (!infoRes.ok) throw new Error(`/info returned ${infoRes.status}`);
