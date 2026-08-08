@@ -144,6 +144,20 @@ const ADDITIVE_MIGRATIONS = [
   `ALTER TABLE links ADD COLUMN attestation_ledger INTEGER`,
   `ALTER TABLE links ADD COLUMN attested_at INTEGER`,
   `ALTER TABLE link_payments ADD COLUMN ledger INTEGER`,
+  // BUG-4.21: a `sellers` table created before `wallet` gained UNIQUE still has
+  // a plain `wallet TEXT NOT NULL`, and CREATE TABLE IF NOT EXISTS never
+  // upgrades an existing table. `createIfAbsent` uses ON CONFLICT (wallet),
+  // which SQLite rejects outright without a matching constraint — so every
+  // wallet login failed with a 500.
+  //
+  // SQLite cannot ALTER TABLE ADD CONSTRAINT, but a unique index IS a valid
+  // ON CONFLICT target, so this is the additive equivalent. On a fresh database
+  // the constraint already comes from CREATE TABLE and this is a no-op.
+  //
+  // Deliberately not swallowed if it fails: the only way it can is duplicate
+  // wallets already present, and "logins stay broken forever" is not an
+  // acceptable answer to that.
+  `CREATE UNIQUE INDEX IF NOT EXISTS sellers_wallet_unique ON sellers (wallet)`,
 ];
 
 export function createDb(databaseUrl: string, authToken?: string): { db: DB; client: Client } {

@@ -36,14 +36,42 @@ const LEGACY_LINK_PAYMENTS = `CREATE TABLE link_payments (
   created_at INTEGER NOT NULL
 )`;
 
+// Copied verbatim from the production database's own sqlite_master, not
+// guessed: `wallet` has NO UNIQUE here. That single missing constraint is what
+// made every wallet login 500, and a fixture that quietly adds it back tests
+// nothing.
 const LEGACY_SELLERS = `CREATE TABLE sellers (
-  id TEXT PRIMARY KEY, name TEXT NOT NULL, wallet TEXT NOT NULL UNIQUE,
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, wallet TEXT NOT NULL,
   created_at INTEGER NOT NULL
 )`;
 
 async function columnsOf(client: ReturnType<typeof createClient>, table: string): Promise<string[]> {
   const res = await client.execute(`PRAGMA table_info(${table})`);
   return res.rows.map((r) => String(r.name));
+}
+
+/**
+ * The set of column-tuples this table enforces as unique, however that
+ * uniqueness is expressed — PRIMARY KEY, a UNIQUE column, or a unique index.
+ * Comparing these is what catches a constraint that exists on fresh databases
+ * and not on migrated ones; comparing column names alone cannot see it.
+ */
+async function uniqueKeysOf(
+  client: ReturnType<typeof createClient>,
+  table: string,
+): Promise<string[]> {
+  const list = await client.execute(`PRAGMA index_list(${table})`);
+  const keys: string[] = [];
+  for (const row of list.rows) {
+    if (String(row.unique) !== "1") continue;
+    const info = await client.execute(`PRAGMA index_info(${String(row.name)})`);
+    keys.push(info.rows.map((r) => String(r.name)).join(","));
+  }
+  // Deduped: a fresh database gets uniqueness on `sellers.wallet` from the
+  // column constraint AND from the migration's index, a legacy one only from
+  // the index. Two indexes enforcing the same tuple is redundant, not a
+  // different guarantee, and it is the guarantee these tests are about.
+  return [...new Set(keys)].sort();
 }
 
 describe("bootstrap() against a pre-existing database", () => {
@@ -75,6 +103,33 @@ describe("bootstrap() against a pre-existing database", () => {
     const expected = getTableConfig(schema.linkPayments).columns.map((c) => c.name);
     const actual = await columnsOf(client, "link_payments");
     expect(expected.filter((c) => !actual.includes(c))).toEqual([]);
+  });
+
+  // BUG-4.21. A legacy `sellers` has `wallet TEXT NOT NULL` with no UNIQUE, so
+  // `createIfAbsent`'s ON CONFLICT (wallet) is rejected by SQLite outright and
+  // every wallet login 500s. Column names matched exactly in that state, which
+  // is why the first version of this test did not catch it.
+  it("makes sellers.wallet unique on a legacy table, so ON CONFLICT works", async () => {
+    const client = createClient({ url: "file::memory:" });
+    await client.execute(LEGACY_LINKS);
+    await client.execute(LEGACY_LINK_PAYMENTS);
+    await client.execute(LEGACY_SELLERS); // wallet is NOT UNIQUE here
+    await client.execute(
+      "INSERT INTO sellers (id,name,wallet,created_at) VALUES ('s1','a','GWALLET',1)",
+    );
+
+    await bootstrap(client);
+
+    // The exact statement that was failing in production.
+    await expect(
+      client.execute(
+        "INSERT INTO sellers (id,name,wallet,created_at) VALUES ('s2','b','GWALLET',2) " +
+          "ON CONFLICT (wallet) DO NOTHING",
+      ),
+    ).resolves.toBeDefined();
+
+    const rows = await client.execute("SELECT COUNT(*) AS n FROM sellers WHERE wallet = 'GWALLET'");
+    expect(Number(rows.rows[0]?.n)).toBe(1);
   });
 
   it("adds sellers.payout_fields_json to a legacy table", async () => {
@@ -116,7 +171,14 @@ describe("bootstrap() against a pre-existing database", () => {
     for (const table of ["links", "link_payments", "sellers"]) {
       const a = (await columnsOf(legacy, table)).slice().sort();
       const b = (await columnsOf(fresh, table)).slice().sort();
-      expect(a, `${table} drifted between the fresh and migrated paths`).toEqual(b);
+      expect(a, `${table} columns drifted between the fresh and migrated paths`).toEqual(b);
+
+      // Constraints drift too, and are invisible to a column comparison — the
+      // whole of BUG-4.21 lived in this gap.
+      expect(
+        await uniqueKeysOf(legacy, table),
+        `${table} unique constraints drifted between the fresh and migrated paths`,
+      ).toEqual(await uniqueKeysOf(fresh, table));
     }
   });
 });
