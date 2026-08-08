@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { api, CheckoutError, describeError } from "../../lib/api";
-import { connectWallet, disconnectWallet, shortAddress, signChallenge } from "../../lib/wallet";
+import { connectWallet, detectWallet, disconnectWallet, shortAddress, signChallenge } from "../../lib/wallet";
 
 /**
  * Wallet-native login for the dashboard (issue 5.1 / 6.1).
@@ -27,6 +27,21 @@ export default function SessionGate({ children }: { children: ReactNode }) {
   const [address, setAddress] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [walletFound, setWalletFound] = useState<boolean | null>(null);
+
+  // Warm the kit on mount rather than on click. Two things come free: the
+  // dynamic import happens while the user is reading the page instead of after
+  // they press the button, and extensions get the moment they need to inject
+  // before anyone asks whether they exist. `null` means "still looking".
+  useEffect(() => {
+    let live = true;
+    void detectWallet().then((found) => {
+      if (live) setWalletFound(found);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
 
   const signIn = useCallback(async () => {
     setError(null);
@@ -75,9 +90,23 @@ export default function SessionGate({ children }: { children: ReactNode }) {
             the network and moves no funds.
           </p>
 
-          <button className="btn" onClick={signIn} disabled={busy}>
-            {busy ? "Waiting for wallet…" : "Connect wallet"}
+          <button className="btn" onClick={signIn} disabled={busy || walletFound === null}>
+            {busy
+              ? "Waiting for wallet…"
+              : walletFound === null
+                ? "Looking for wallets…"
+                : "Connect wallet"}
           </button>
+
+          {walletFound === false && (
+            <p className="muted" style={{ marginTop: 14, fontSize: 13 }}>
+              No Stellar wallet detected in this browser.{" "}
+              <a href="https://freighter.app" target="_blank" rel="noopener noreferrer">
+                Freighter
+              </a>{" "}
+              is the usual choice. Install it, then reload this page.
+            </p>
+          )}
 
           {error && (
             <p className="muted" style={{ marginTop: 16, color: "var(--danger, #b91c1c)" }} role="alert">
