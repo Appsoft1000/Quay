@@ -44,6 +44,11 @@ jobs:
           NEXT_TELEMETRY_DISABLED: "1"
 
 
+      # Guards the basis on which the Wallets Kit advisories are allowlisted:
+      # those packages are accepted only because they never reach a browser.
+      - name: Excluded packages stay out of the client bundle
+        run: node scripts/check-client-bundle.mjs
+
       - name: Dependency audit (fails on unallowlisted HIGH/CRITICAL)
         run: |
           set +e
