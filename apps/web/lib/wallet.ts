@@ -60,6 +60,38 @@ async function kit(): Promise<Kit> {
   return ready;
 }
 
+/** How long to keep re-checking for a wallet before opening the picker anyway. */
+const DETECT_TIMEOUT_MS = 2_500;
+const DETECT_INTERVAL_MS = 150;
+
+/**
+ * Waits for at least one wallet to report itself installed.
+ *
+ * Browser wallets inject their provider asynchronously *after* page load, and
+ * the kit computes availability once, when asked. Open the picker too early and
+ * Freighter and Lobstr both show "Install" even though they are right there —
+ * the check ran before the extension had announced itself. Waiting a moment and
+ * re-asking is the difference between the picker being right and being wrong.
+ *
+ * Bounded, and never fatal: if nothing turns up within the timeout the picker
+ * opens regardless, showing install links, which is the correct outcome for
+ * someone who genuinely has no wallet.
+ */
+async function waitForWallet(k: Kit): Promise<void> {
+  const deadline = Date.now() + DETECT_TIMEOUT_MS;
+  for (;;) {
+    try {
+      const wallets = await k.refreshSupportedWallets();
+      if (wallets.some((w) => w.isAvailable)) return;
+    } catch {
+      // Detection itself failing is not a reason to block the picker.
+      return;
+    }
+    if (Date.now() >= deadline) return;
+    await new Promise((r) => setTimeout(r, DETECT_INTERVAL_MS));
+  }
+}
+
 /**
  * Opens the wallet picker and returns the chosen address.
  *
@@ -69,11 +101,27 @@ async function kit(): Promise<Kit> {
  */
 export async function connectWallet(): Promise<string | null> {
   const k = await kit();
+  await waitForWallet(k);
   try {
     const { address } = await k.authModal();
     return address || null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Whether any wallet is currently detectable, after giving extensions time to
+ * inject. Lets the UI say "no wallet detected" up front instead of only after
+ * someone clicks and meets a list of install links.
+ */
+export async function detectWallet(): Promise<boolean> {
+  const k = await kit();
+  await waitForWallet(k);
+  try {
+    return (await k.refreshSupportedWallets()).some((w) => w.isAvailable);
+  } catch {
+    return false;
   }
 }
 
