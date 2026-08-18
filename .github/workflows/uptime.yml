@@ -1,8 +1,9 @@
 name: uptime
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"
+  # Scheduled pinger disabled — re-enable by uncommenting the schedule block.
+  # schedule:
+  #   - cron: "*/5 * * * *"
   workflow_dispatch: {}
 
 permissions:
