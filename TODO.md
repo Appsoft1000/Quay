@@ -4,7 +4,7 @@ Outstanding work, ordered by what blocks what. `MAINTAINER.md` is the older
 Drips-wave plan and is kept separate — this file tracks the mainnet cutover and
 the maintenance items that came out of it.
 
-Last updated: 2026-08-21.
+Last updated: 2026-08-23.
 
 ---
 
@@ -85,8 +85,121 @@ Remaining for this path:
 - [ ] Decide how the dashboard should explain that sellers cash out themselves —
       right now the button simply is not there, with no copy replacing it.
 
-## 3. Known gaps — not blockers, each has a real production cost
+## 3. Buyer-side on-ramp checkout — design note, not yet scoped
 
+The strategic direction as of 2026-08-23. Nothing here is built.
+
+### The idea
+
+Today a buyer can only pay if they already hold USDC on Stellar. That is the
+actual ceiling on this product, and no amount of merchant-side work lifts it —
+it is why comparable projects have a good codebase and no users.
+
+Instead, let the buyer pay through an on-ramp anchor they already have an
+account with, and offer a choice of anchors at checkout. Buyer pays fiat, the
+merchant receives USDC, nobody has to be crypto-native.
+
+### Why the mechanics work
+
+- **Third-party deposit destinations are spec-legal.** Per SEP-24: "both the
+  source account of a withdrawal payment and the destination account of a
+  deposit can be different from the account authenticated via SEP-10 or
+  SEP-45." So a buyer authenticates with their own anchor and the funds land
+  in the merchant's wallet.
+- **This uses the abundant anchor set, not the scarce one.** The SEP-6-only
+  gap that an anchor-facing checkout would have targeted is tiny and mostly
+  dead — 12 domains, 8 with no SEP-10 at all, exactly one (mtl.montelibero.org)
+  with SEP-10 + SEP-12 (see `scripts/anchor-sep-scan.mjs`). For a buyer-side
+  picker you want **SEP-24**, because the anchor hosts its own KYC webview and
+  we build none of it — and SEP-24 anchors numbered 61+ in a partial scan.
+- **Anchors are suppliers here, not competitors.** They want on-ramp volume.
+
+### The constraint that shapes the whole design
+
+Every transaction in this flow is, by construction, a **third-party payment**:
+the buyer is KYC'd by the anchor, but the funds go to a merchant the anchor has
+never seen. That is a named and heavily-scrutinised AML category — guidance
+requires AML-manager approval and beneficiary name-screening for third-party
+deposits, and says firms that cannot mitigate the risk should refuse them
+outright. "Sudden large deposits followed by immediate transfers to unrelated
+parties" is listed as a scrutiny trigger, which is a literal description of
+checkout.
+
+**Mitigation: reusable merchant KYC.** If the merchant carries a credential the
+anchor can verify, the merchant stops being an unknown beneficiary and the
+anchor can screen both ends. Two Stellar projects already do this:
+
+- **SAK (Stellar Anchor KYC)** — shared encrypted identity layer, KYC once,
+  anchors verify over SEP-12, ZK proofs return validity and tier without raw
+  data. An Anclap pilot is planned.
+- **StellarProof** — reusable credential bound to a Stellar wallet; anchors
+  verify the credential rather than re-checking documents.
+
+This also puts the friction in the right place: merchants tolerate onboarding,
+buyers abandon it.
+
+The residual problem is legal, not technical — reliance regimes let an anchor
+rely on someone else's CDD but it stays liable, so anchors will want contracts
+before accepting a third-party credential.
+
+### What has to change in this codebase
+
+- [ ] **A pending-settlement state.** Fiat deposits clear in minutes to days.
+      The status machine goes `active -> paid` with a TTL and the checkout
+      renders an expiry countdown; a deposit pending for hours breaks both.
+      Needs a state that means "payment initiated, not yet settled" — the way
+      ACH and bank transfer already work, which merchants accept when it is
+      labelled honestly.
+- [ ] **Decide who carries the gap.** The anchor will not: it has no contract
+      with the merchant, and the merchant's counterparty is us. Fronting the
+      funds would mean custody, capital and licensing, which destroys the
+      non-custodial property that is the actual differentiator. So: explicit
+      pending state, plus an FX quote with a buffer and a hard expiry.
+- [ ] **A deposit path at all.** Everything built so far is withdrawal
+      (`OffRampPort`). This needs the mirror: a SEP-24 deposit initiation, an
+      anchor picker in the checkout, and settlement detection that reconciles
+      an anchor deposit against a link.
+- [ ] **Anchor discovery/registry** so the picker has something to offer.
+      `scripts/anchor-sep-scan.mjs` already produces the raw data.
+
+### Open questions — cheaper to ask than to build
+
+- [ ] **Will an anchor permit SEP-24 deposits to a third-party destination?**
+      The spec allows it; a compliance team may not. This decides whether the
+      architecture works at all. **Anclap** is the better first conversation
+      than Cowrie — it runs SEP-6 + SEP-24 + SEP-10 + SEP-12 (the most complete
+      anchor in the scan) and is already in the SAK reusable-KYC pilot.
+- [ ] **What fraction of buyers in the target corridor hold an account with
+      *any* supported anchor?** Aggregation answers any single anchor's small
+      base, but ten anchors with 8,000 users each is 80,000 people, not a
+      market. On-chain holder counts are a floor, not the answer — an anchor's
+      customer base is larger than the set holding its Stellar asset.
+
+### Related: privacy as a later differentiator
+
+Confidential Tokens (private balances and transfer amounts, addresses stay
+public for compliance) and Nethermind's Stellar Private Payments (shields both
+parties) are both **testnet-only developer previews, explicitly not approved
+for mainnet**, with audits underway. No competitor offers this.
+
+Two caveats if it is picked up later: Confidential Tokens leave **deposit and
+withdrawal amounts public**, so a one-shot checkout leaks roughly the revenue
+figure it was meant to hide; and it needs USDC via the Stellar Asset Contract,
+which makes payments Soroban calls that `HorizonWatcher` — which matches
+classic payments by memo — cannot see at all.
+
+Worth a testnet spike while audits run. Not worth stopping shipping for.
+
+## 4. Known gaps — not blockers, each has a real production cost
+
+- [ ] **`TestAnchorOffRamp` requires SEP-38, which the most plausible real
+      anchor does not implement.** `testanchor.ts:165` calls `getSep38Quote`
+      and `:116` calls `getSep38Prices`. Cowrie's stellar.toml declares
+      TRANSFER_SERVER, WEB_AUTH_ENDPOINT, KYC_SERVER and DIRECT_PAYMENT_SERVER
+      but **no ANCHOR_QUOTE_SERVER** — and no SEP-6-only anchor in the scan has
+      one. Integrating a real anchor therefore needs a non-SEP-38 pricing path:
+      fees are available from `/sep6/info` (`feeFixed` / `feePercent`), but the
+      FX rate is not.
 - [ ] **`REDIS_URL` unset.** Rate-limit counters live in an in-process `Map`, so
       N instances allow N times the configured limit. Set before scaling past
       one instance.
@@ -117,7 +230,7 @@ Remaining for this path:
 
 ---
 
-## 4. Verification before announcing
+## 5. Verification before announcing
 
 The full list is in `docs/MAINNET.md` (Phase 5). The two that matter most:
 
