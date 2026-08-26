@@ -6,8 +6,8 @@
 # the ARG below - both stages that FROM it pick up the new digest together,
 # since they both reference the same ARG.
 #
-# node:22-alpine, tag "22-alpine", resolved 2026-07-28.
-ARG BASE_IMAGE=node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2
+# node:22-alpine, tag "22-alpine", resolved 2026-08-26.
+ARG BASE_IMAGE=node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
 
 # ---------------------------------------------------------------------------
 # Stage: deps - full (dev + prod) install for the filtered workspace subset,
