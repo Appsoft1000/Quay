@@ -57,8 +57,9 @@ FROM ${BASE_IMAGE} AS runtime
 # `apk upgrade` on top of the pinned digest: the base image is rebuilt on its
 # own cadence, so between rebuilds Alpine can publish a fixed openssl the tag
 # does not carry yet (CVE-2026-14456 was exactly that). Pinning keeps the
-# build reproducible; the upgrade keeps the Trivy gate honest.
-RUN apk upgrade --no-cache && apk add --no-cache tini && corepack enable
+# build reproducible; the upgrade keeps the Trivy gate honest. Named packages
+# only — a blanket `apk upgrade` costs ~2 MB and blows the image-size budget.
+RUN apk upgrade --no-cache libcrypto3 libssl3 && apk add --no-cache tini && corepack enable
 WORKDIR /app
 
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
