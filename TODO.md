@@ -4,7 +4,7 @@ Outstanding work, ordered by what blocks what. `MAINTAINER.md` is the older
 Drips-wave plan and is kept separate — this file tracks the mainnet cutover and
 the maintenance items that came out of it.
 
-Last updated: 2026-08-23.
+Last updated: 2026-08-26.
 
 ---
 
@@ -225,12 +225,73 @@ Worth a testnet spike while audits run. Not worth stopping shipping for.
       the root manifest.
 - [ ] **`db-backup.yml` points at the testnet database.** Repoint before relying
       on it for mainnet.
-- [ ] **Dependabot PR #148** is still open — a version-bump group PR that the
-      new config would no longer create. Close it or merge it.
+- [x] ~~**Dependabot PR #148**~~ — closed 2026-08-22. The repo has no open
+      Dependabot PRs; the monthly security-only config is doing its job.
 
 ---
 
-## 5. Verification before announcing
+## 5. Mainnet-readiness audit (2026-08-25) — what stays with you
+
+The audit's twenty findings were triaged on 2026-08-26. Fifteen are ordinary
+engineering and are now filed as contributor issues — **#152–#166**, in
+`ISSUES.md` as 4.11, 4.12, 5.8–5.12, 6.6, 6.7, 7.8 and 8.8–8.12. What is left
+here is the part no contributor can do for you: it needs a secret, a credential,
+a paid account, or your judgement about real money.
+
+**Gate these two before anyone's fix ships**
+
+- [ ] **#152 — duplicate-payment protection keyed by transaction, not operation.**
+      A two-operation transaction, or one transaction paying two watched sellers,
+      leaves a fully-paid link `underpaid` or `unpaid` forever with no recovery
+      path. Review the fix and its migration yourself; a wrong dedup key is worse
+      than none.
+- [ ] **#159 — an API key can mint itself a broader key.** The escalation ends at
+      `payoutFields` on cash-out, which redirects proceeds. Review the subset
+      check personally, and rotate any API key issued before the fix lands.
+
+**Infrastructure you have to buy or provision**
+
+- [ ] **Redis.** `REDIS_URL` unset means rate-limit counters *and* SEP-10
+      challenge nonces (#160) are per-process — N instances, N× the limit and N
+      redemptions of one signature. Provision before scaling past one instance.
+- [ ] **A real database.** Tracked in §1; repeated here because it is the single
+      item that loses the payment ledger rather than degrading a feature.
+- [ ] **A least-privilege API key for the synthetic uptime check** (#163), stored
+      as a repo secret. The check has been failing since seller auth landed and
+      cannot be fixed without a credential you issue.
+- [ ] **Mainnet monitoring targets** (#162). The code change is delegated; the
+      URLs and secrets for `quay-api-mainnet`, and re-enabling the schedule in
+      `.github/workflows/uptime.yml` (disabled in `a0f06d1`), are yours.
+- [ ] **Repoint `anchor-probe.yml` and `db-backup.yml`** at mainnet
+      infrastructure — see §4. Both still watch testnet.
+
+**Repo settings**
+
+- [ ] **Authorize Vercel deployments for pull requests.** Every contributor PR
+      currently shows a red Vercel check reading *"Authorization required to
+      deploy"*. It is not a code failure, but it trains reviewers to ignore a red
+      check, which is how a real one gets missed.
+- [ ] **Keep the base-image digest fresh.** `apps/api/Dockerfile` pins
+      `node:22-alpine` by digest and the Trivy gate fails HIGH/CRITICAL, so a
+      disclosed CVE turns every PR red until someone bumps it. On 2026-08-26 that
+      was CVE-2026-14456 (openssl); the fix in place is a targeted
+      `apk upgrade libcrypto3 libssl3`, because the newer tag carries the same
+      unpatched openssl and 2 MB more, which breaks the 250 MB size budget. The
+      monthly cadence noted in the Dockerfile is the real mitigation.
+
+**Backlog hygiene**
+
+- [ ] Six stale contributor PRs were closed on 2026-08-26 (#80, #101, #102, #104,
+      #110, #118) — each had drifted a month behind `main` and no longer merged;
+      one did not compile. Their issues stay open and unclaimed: **#14** (SEP-1
+      discovery), **#22** (durable webhook queue — also the audit's "one slow
+      receiver stalls every seller" finding), **#35** (expiry countdown),
+      **#37** (Playwright e2e), **#41** (per-seller scoping), **#49** (coverage
+      gating). Consider labelling `help-wanted` so they are visibly free.
+
+---
+
+## 6. Verification before announcing
 
 The full list is in `docs/MAINNET.md` (Phase 5). The two that matter most:
 
