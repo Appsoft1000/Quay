@@ -147,6 +147,12 @@ describe("renderStatusMd", () => {
 //  fetch injected, rather than a parallel copy that could drift from it.
 // ---------------------------------------------------------------------------
 
+// Placeholder credentials. Deliberately not shaped like a real key (which is
+// `ak_live_` + 32 base62 chars) so a secret scanner has nothing to match on.
+const FAKE_KEY = "not-a-real-key";
+const FAKE_REVOKED_KEY = "not-a-real-revoked-key";
+const FAKE_MAINNET_KEY = "not-a-real-mainnet-key";
+
 function jsonResponse(status: number, body?: unknown) {
   return {
     ok: status >= 200 && status < 300,
@@ -167,12 +173,12 @@ describe("checkSyntheticLink", () => {
         : jsonResponse(200, { link: { id: "lnk_uptime_1", status: "cancelled" } });
     };
 
-    await checkSyntheticLink(API, "ak_live_test123", fakeFetch);
+    await checkSyntheticLink(API, FAKE_KEY, fakeFetch);
 
     expect(calls).toHaveLength(2);
     const [createUrl, createOpts] = calls[0]!;
     expect(createUrl).toBe(`${API}/links`);
-    expect(createOpts.headers.authorization).toBe("Bearer ak_live_test123");
+    expect(createOpts.headers.authorization).toBe(`Bearer ${FAKE_KEY}`);
     expect(JSON.parse(createOpts.body)).toEqual({
       title: "uptime-check",
       amount: "0.0000001",
@@ -182,7 +188,7 @@ describe("checkSyntheticLink", () => {
     // Cleanup: the throwaway row must not accumulate.
     const [cancelUrl, cancelOpts] = calls[1]!;
     expect(cancelUrl).toBe(`${API}/links/lnk_uptime_1/cancel`);
-    expect(cancelOpts.headers.authorization).toBe("Bearer ak_live_test123");
+    expect(cancelOpts.headers.authorization).toBe(`Bearer ${FAKE_KEY}`);
   });
 
   it("sends no Authorization header when no key is configured", async () => {
@@ -205,12 +211,12 @@ describe("checkSyntheticLink", () => {
     // A configured-but-rejected key is a real problem — a revoked or
     // wrong-scope key must not be reported as a missing-secret misconfiguration.
     const fakeFetch = async () => jsonResponse(401);
-    await expect(checkSyntheticLink(API, "ak_revoked", fakeFetch)).rejects.toThrow(/expected 201/);
+    await expect(checkSyntheticLink(API, FAKE_REVOKED_KEY, fakeFetch)).rejects.toThrow(/expected 201/);
   });
 
   it("fails when the write path is genuinely broken", async () => {
     const fakeFetch = async () => jsonResponse(500);
-    await expect(checkSyntheticLink(API, "ak_live", fakeFetch)).rejects.toThrow(/HTTP 500 \(expected 201\)/);
+    await expect(checkSyntheticLink(API, FAKE_KEY, fakeFetch)).rejects.toThrow(/HTTP 500 \(expected 201\)/);
   });
 
   it("does not fail the probe when only cleanup fails", async () => {
@@ -221,7 +227,7 @@ describe("checkSyntheticLink", () => {
       n += 1;
       return n === 1 ? jsonResponse(201, { link: { id: "lnk_1" } }) : jsonResponse(500);
     };
-    await expect(checkSyntheticLink(API, "ak_live", fakeFetch)).resolves.toBeUndefined();
+    await expect(checkSyntheticLink(API, FAKE_KEY, fakeFetch)).resolves.toBeUndefined();
   });
 
   it("tolerates a 201 body with no link id", async () => {
@@ -230,7 +236,7 @@ describe("checkSyntheticLink", () => {
       n += 1;
       return n === 1 ? jsonResponse(201, {}) : jsonResponse(200);
     };
-    await expect(checkSyntheticLink(API, "ak_live", fakeFetch)).resolves.toBeUndefined();
+    await expect(checkSyntheticLink(API, FAKE_KEY, fakeFetch)).resolves.toBeUndefined();
     expect(n).toBe(1); // no cancel attempted
   });
 });
@@ -238,15 +244,15 @@ describe("checkSyntheticLink", () => {
 describe("uptime API keys", () => {
   it("reads a per-environment key, never sharing testnet's with mainnet", () => {
     const [testnet, mainnet] = buildEnvironments({
-      UPTIME_API_KEY: "ak_testnet",
-      UPTIME_MAINNET_API_KEY: "ak_mainnet",
+      UPTIME_API_KEY: FAKE_KEY,
+      UPTIME_MAINNET_API_KEY: FAKE_MAINNET_KEY,
     });
-    expect(testnet.apiKey).toBe("ak_testnet");
-    expect(mainnet.apiKey).toBe("ak_mainnet");
+    expect(testnet.apiKey).toBe(FAKE_KEY);
+    expect(mainnet.apiKey).toBe(FAKE_MAINNET_KEY);
 
-    const [onlyTestnetKey] = buildEnvironments({ UPTIME_API_KEY: "ak_testnet" });
-    expect(onlyTestnetKey.apiKey).toBe("ak_testnet");
-    expect(buildEnvironments({ UPTIME_API_KEY: "ak_testnet" })[1]!.apiKey).toBeFalsy();
+    const [onlyTestnetKey] = buildEnvironments({ UPTIME_API_KEY: FAKE_KEY });
+    expect(onlyTestnetKey.apiKey).toBe(FAKE_KEY);
+    expect(buildEnvironments({ UPTIME_API_KEY: FAKE_KEY })[1]!.apiKey).toBeFalsy();
   });
 });
 
