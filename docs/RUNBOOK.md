@@ -72,6 +72,40 @@ prerequisite, not a preference:
   in a per-process `Map`. The persisted replay table still works; only the
   concurrent-duplicate guard is lost, and it guards a money endpoint.
 
+## Uptime monitoring
+
+`scripts/uptime-check.mjs` (`.github/workflows/uptime.yml`) checks every
+configured environment on one schedule, each with its own history series and
+its own section in `docs/STATUS.md` — a healthy testnet can never stand in
+for an unmonitored mainnet (issue 8.8).
+
+**Testnet is always checked**, with the same defaults and unprefixed target
+ids (`api` / `web` / `synthetic`) this script has always used —
+`https://quay-api.onrender.com` / `https://quay-web.vercel.app`, overridable
+via `UPTIME_API_URL` / `UPTIME_WEB_URL`.
+
+**Mainnet is checked only once you configure it — there is no default of any
+kind.** Set these as repository **Variables** (Settings → Secrets and
+variables → Actions → Variables — they're plain hostnames, not secrets):
+
+| Variable | Required | What it does |
+|---|---|---|
+| `UPTIME_MAINNET_API_URL` | to watch mainnet at all | e.g. `https://quay-api-mainnet.onrender.com` (`render.mainnet.yaml`'s `quay-api-mainnet`). Unset means mainnet is skipped entirely, not silently checked against the testnet URL. |
+| `UPTIME_MAINNET_WEB_URL` | optional | Only set this if a dedicated mainnet web deployment exists. `render.mainnet.yaml` declares no web service today, so leave unset until one does. |
+| `UPTIME_MAINNET_SYNTHETIC_CHECK` | optional, default off | Set to `1` to also POST a throwaway `/links` synthetic check against mainnet, same as testnet already does. Left off by default: it would write a real row into the production database on every successful run, and unlike testnet, `POST /links` there has no scoped-credential story yet — see issue #163 (least-privilege API key for this check) before turning it on. |
+
+Once `UPTIME_MAINNET_API_URL` is set, the next run adds a `## Mainnet`
+section to `docs/STATUS.md` and starts filing incidents titled
+`🔴 Uptime: Mainnet — API is down` (the environment name is always in the
+title and body — see `renderStatusMd`/`buildTargets` in the script) instead of
+the ambiguous `🔴 Uptime: API is down` a pre-8.8 reader might mistake for
+testnet.
+
+**The scheduled run itself is still disabled** (`.github/workflows/uptime.yml`
+only has `workflow_dispatch`, no `schedule` — see `TODO.md` §5). Re-enabling
+it and setting the variables above are both owner actions: this doc only
+covers what to set once you do.
+
 ## Deploy
 
 Render deploys `apps/api` as a single always-on Docker web service (starter
