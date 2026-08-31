@@ -501,11 +501,16 @@ export interface CreateLinkInput {
 }
 
 /** One incoming payment recorded against a link — the authoritative ledger
- *  row cumulative accounting sums over (issue 1.4). `txHash` is unique so a
- *  reprocessed payment can never double-count. */
+ *  row cumulative accounting sums over (issue 1.4). Unique on
+ *  `(txHash, operationId)`, not `txHash` alone (issue 4.11): a transaction
+ *  can carry more than one payment operation to the same link (a split
+ *  payment), and each must be recorded, not dropped as a false duplicate of
+ *  the other. A reprocessed *operation* still never double-counts. */
 export interface LinkPaymentRecord {
   linkId: string;
   txHash: string;
+  /** The chain's per-operation identifier (Horizon's `pagingToken`). */
+  operationId: string;
   payer: string;
   amount: string;
   asset: AssetRef;
@@ -535,8 +540,10 @@ export interface LinkRepository {
   /** Active (or underpaid) links whose value lands in `destination`. */
   openLinksForDestination(destination: string): Promise<PaymentLink[]>;
   save(link: PaymentLink): Promise<void>;
-  /** Append a payment to the link's ledger. A duplicate `txHash` is a no-op —
-   *  cumulative accounting must never double-count a reprocessed payment. */
+  /** Append a payment to the link's ledger. A duplicate `(txHash, operationId)`
+   *  is a no-op — cumulative accounting must never double-count a reprocessed
+   *  operation. Two *different* operations that happen to share a `txHash`
+   *  (a split payment) are two rows, not one (issue 4.11). */
   recordPayment(payment: LinkPaymentRecord): Promise<void>;
   /** Sum of every payment ever recorded for this link, as a decimal string
    *  ("0" if none). The authoritative source `paidAmount` is cached from. */
@@ -632,12 +639,22 @@ export interface WebhookRepository {
   listDeliveriesByLinkId(linkId: string): Promise<WebhookDelivery[]>;
 }
 
-/** Watcher bookkeeping: per-account cursor + processed-tx ledger for idempotency. */
+/**
+ * Watcher bookkeeping: per-account cursor + processed-payment ledger for
+ * idempotency.
+ *
+ * Keyed by operation, not transaction (issue 4.11): a Stellar transaction can
+ * carry up to 100 operations, and a payment is one operation, not the whole
+ * transaction. `operationId` is the chain's per-operation identifier (Horizon's
+ * `pagingToken` for Stellar) — two payment operations sharing one `txHash`
+ * (a split payment, or a batch that happens to pay two different watched
+ * destinations) must dedupe independently, not collide on the shared hash.
+ */
 export interface WatcherStateRepository {
   getCursor(account: string): Promise<string | null>;
   setCursor(account: string, cursor: string): Promise<void>;
-  isProcessed(txHash: string): Promise<boolean>;
-  markProcessed(txHash: string, linkId: string | null): Promise<void>;
+  isProcessed(txHash: string, operationId: string): Promise<boolean>;
+  markProcessed(txHash: string, operationId: string, linkId: string | null): Promise<void>;
 }
 
 /** Session-JWT revocation, keyed by the token's own `jti` — logout and
