@@ -298,8 +298,10 @@ replaying local state.
 Not blockers for a first cutover, but each has a real production cost:
 
 - **`REDIS_URL` unset.** Rate-limit counters live in an in-process `Map`, so N
-  instances allow N times the configured limit. Set it before scaling past one
-  instance.
+  instances allow N times the configured limit. SEP-10 challenge single-use
+  tracking has the same gap: without it, the same signed challenge can be
+  redeemed once per instance instead of once, ever. Set it before scaling past
+  one instance.
 - **`apps/api/scripts/demo-seed.ts` reads `STELLAR_NETWORK` like the API does**,
   but Friendbot and the testanchor USDC dispenser only exist on testnet — on
   public network it skips both with a clear message and expects the generated
